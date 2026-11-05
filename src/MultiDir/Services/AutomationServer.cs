@@ -87,6 +87,7 @@ public sealed class AutomationServer
             "drop" => Drop(args),
             "wait" => Wait(args),
             "zone" => Zone(args),
+            "plus" => Plus(),
             _ => "ERROR unknown command; try: help",
         };
     }
@@ -138,7 +139,12 @@ public sealed class AutomationServer
         var win = Win(a, 1);
         var dpi = VisualTreeHelper.GetDpi(win);
         var visual = (Visual)win.Content;
-        var size = ((FrameworkElement)win.Content).RenderSize;
+        // Floating windows host their content in a nested HwndSource (an HwndHost), which renders as blank.
+        var winHwnd = new WindowInteropHelper(win).Handle;
+        if (PresentationSource.CurrentSources.OfType<HwndSource>()
+                .FirstOrDefault(s => s.Handle != winHwnd && IsChildOf(s.Handle, winHwnd) && s.RootVisual is FrameworkElement) is { } nested)
+            visual = nested.RootVisual;
+        var size = ((FrameworkElement)visual).RenderSize;
         var bmp = new RenderTargetBitmap((int)Math.Ceiling(size.Width * dpi.DpiScaleX), (int)Math.Ceiling(size.Height * dpi.DpiScaleY),
             dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
         // Background first: the window brush is not part of the content's own rendering.
@@ -146,11 +152,21 @@ public sealed class AutomationServer
         using (var dc = bg.RenderOpen()) dc.DrawRectangle(win.Background ?? Brushes.Black, null, new Rect(size));
         bmp.Render(bg);
         bmp.Render(visual);
+        // Adorners (e.g. the "+" new-tab buttons) live in the window's adorner layer, outside Content.
+        if (System.Windows.Documents.AdornerLayer.GetAdornerLayer(visual) is { } layer) bmp.Render(layer);
         var enc = new PngBitmapEncoder();
         enc.Frames.Add(BitmapFrame.Create(bmp));
         using (var fs = File.Create(a[0])) enc.Save(fs);
         return $"OK {bmp.PixelWidth}x{bmp.PixelHeight} -> {a[0]} (coords for click = these pixels, client area)";
     }
+
+    private static bool IsChildOf(IntPtr child, IntPtr parent)
+    {
+        for (var h = GetParent(child); h != IntPtr.Zero; h = GetParent(h)) if (h == parent) return true;
+        return false;
+    }
+
+    [DllImport("user32.dll")] private static extern IntPtr GetParent(IntPtr hwnd);
 
     // Input is synthesised as WPF routed events on the hit element (Preview→bubble, down→up), i.e. the same
     // route a real click takes. Window messages can't be used: WPF drops mouse messages when the physical
@@ -283,6 +299,9 @@ public sealed class AutomationServer
         var dpi = VisualTreeHelper.GetDpi(win);
         var content = (UIElement)win.Content;
         var pt = win.TranslatePoint(new Point(x / dpi.DpiScaleX, y / dpi.DpiScaleY), content);
+        // Adorners (the "+" new-tab buttons) sit above the content, like a real click would see them.
+        if (System.Windows.Documents.AdornerLayer.GetAdornerLayer(content) is { } layer
+            && layer.InputHitTest(content.TranslatePoint(pt, layer)) is DependencyObject hit && FindUi(hit) is { } ui && ui is not System.Windows.Documents.AdornerLayer) return ui;
         return content.InputHitTest(pt) as UIElement ?? (content.InputHitTest(pt) as DependencyObject is { } d ? FindUi(d) : null);
     }
 
@@ -370,6 +389,35 @@ public sealed class AutomationServer
         var panes = _window.Dock.Layout.Descendents().OfType<LayoutDocumentPane>().ToList();
         var b = zone.Value.Bounds;
         return $"OK pane {panes.IndexOf(zone.Value.Pane)} header {b.X:0},{b.Y:0} {b.Width:0}x{b.Height:0} (DIP)";
+    }
+
+    /// <summary>Where each pane's "+" new-tab button is (main-window DIP), or why it is missing.</summary>
+    private string Plus()
+    {
+        var sb = new StringBuilder();
+        // Floating windows host their content in a nested HwndSource, so walk every presentation source.
+        foreach (var src in PresentationSource.CurrentSources.OfType<PresentationSource>().Where(s => s.RootVisual != null))
+            foreach (var pc in Find<AvalonDock.Controls.LayoutDocumentPaneControl>(src.RootVisual))
+            {
+                var w = (UIElement)src.RootVisual;
+                var layer = System.Windows.Documents.AdornerLayer.GetAdornerLayer(pc);
+                var ads = layer?.GetAdorners(pc);
+                var btn = ads?.SelectMany(ad => Find<System.Windows.Controls.Button>(ad)).FirstOrDefault();
+                sb.AppendLine(layer == null ? "pane: no adorner layer"
+                    : btn == null ? $"pane: adorners={ads?.Length ?? 0}, no button"
+                    : $"pane{(pc.Model?.FindParent<LayoutDocumentFloatingWindow>() != null ? " (floating)" : "")}: + at {btn.TranslatePoint(new Point(0, 0), w):0} visible={btn.IsVisible} size={btn.ActualWidth:0}x{btn.ActualHeight:0}");
+            }
+        return sb.ToString().TrimEnd();
+    }
+
+    private static IEnumerable<T> Find<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var c = VisualTreeHelper.GetChild(root, i);
+            if (c is T t) yield return t;
+            foreach (var d in Find<T>(c)) yield return d;
+        }
     }
 
     private static string Wait(List<string> a)

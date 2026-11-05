@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         Dock.Theme = new Vs2013DarkTheme();
         HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight);
+        NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
 
         // Default layout (decision #6): Q-dir style four-grid.
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
