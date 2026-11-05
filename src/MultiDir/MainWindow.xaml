@@ -1,0 +1,45 @@
+﻿<Window x:Class="MultiDir.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ad="https://github.com/Dirkster99/AvalonDock"
+        Title="MultiDir" Width="1400" Height="860" WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Bg}" Foreground="{StaticResource Text}">
+    <Window.InputBindings>
+        <KeyBinding Key="T" Modifiers="Control" Command="{x:Static ApplicationCommands.New}"/>
+        <KeyBinding Key="W" Modifiers="Control" Command="{x:Static ApplicationCommands.Close}"/>
+        <KeyBinding Key="T" Modifiers="Control+Shift" Command="{x:Static ApplicationCommands.Undo}"/>
+    </Window.InputBindings>
+    <Window.CommandBindings>
+        <CommandBinding Command="{x:Static ApplicationCommands.New}" Executed="NewTab_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Close}" Executed="CloseTab_Executed"/>
+        <CommandBinding Command="{x:Static ApplicationCommands.Undo}" Executed="ReopenTab_Executed"/>
+    </Window.CommandBindings>
+
+    <DockPanel>
+        <!-- Layout presets: helpers only — dragging tabs is the primary way to split. -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1" Padding="6,3">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="版面" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="2,0,6,0"/>
+                <Button Style="{StaticResource ToolButton}" Content="&#xE739;" ToolTip="單格" Click="Preset_Click" Tag="1"/>
+                <Button Style="{StaticResource ToolButton}" Content="&#xE89F;" ToolTip="左右兩格" Click="Preset_Click" Tag="2"/>
+                <Button Style="{StaticResource ToolButton}" Content="&#xF0E2;" ToolTip="四宮格" Click="Preset_Click" Tag="4"/>
+                <TextBlock Text="（拖曳分頁到窗格邊緣即可分割、拖到分頁列或功能列併入、拖出視窗變浮動）" Foreground="{StaticResource TextDim}"
+                           VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11"/>
+            </StackPanel>
+        </Border>
+
+        <Grid>
+        <ad:DockingManager x:Name="Dock" AllowMixedOrientation="True"
+                           DocumentClosed="Dock_DocumentClosed"
+                           PreviewMouseDown="Dock_PreviewMouseDown"
+                           ActiveContentChanged="Dock_ActiveContentChanged"
+                           AllowDrop="True" DragEnter="Dock_DragOver" DragOver="Dock_DragOver"
+                           DragLeave="Dock_DragLeave" Drop="Dock_Drop"/>
+        <!-- Highlight of the pane header a floating window will join when released (see HeaderDocking). -->
+        <Canvas IsHitTestVisible="False">
+            <Border x:Name="HeaderDropHighlight" Visibility="Collapsed" CornerRadius="3"
+                    Background="#553574F0" BorderBrush="{StaticResource Accent}" BorderThickness="2"/>
+        </Canvas>
+        </Grid>
+    </DockPanel>
+</Window>
