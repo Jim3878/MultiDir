@@ -20,11 +20,22 @@ public sealed class TrayIcon : IDisposable
         _icon = new Forms.NotifyIcon
         {
             Text = "MultiDir",
-            Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application,
+            Icon = LoadIcon(),
             ContextMenuStrip = menu,
             Visible = true,
         };
         _icon.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) show(); };
+    }
+
+    /// <summary>The MultiDir icon at the tray's size (16 px at 100 %, larger on high-DPI screens).</summary>
+    private static System.Drawing.Icon LoadIcon()
+    {
+        try
+        {
+            using var stream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/MultiDir.ico")).Stream;
+            return new System.Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
+        }
+        catch { return System.Drawing.SystemIcons.Application; }
     }
 
     /// <summary>Tells the user once per run where the window went.</summary>

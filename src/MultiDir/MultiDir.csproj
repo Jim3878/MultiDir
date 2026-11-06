@@ -10,9 +10,15 @@
     <UseWindowsForms>true</UseWindowsForms>
     <!-- Program.Main does the single-instance hand-off before WPF starts. -->
     <StartupObject>MultiDir.Program</StartupObject>
+    <!-- App icon (drawn by tools/make-icon.ps1): exe / taskbar / Alt+Tab; also embedded for the window and tray. -->
+    <ApplicationIcon>Assets\MultiDir.ico</ApplicationIcon>
     <!-- Test builds (tools/mdctl.ps1) use a separate artifacts path; never pick up the normal build's generated files. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\MultiDir.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />

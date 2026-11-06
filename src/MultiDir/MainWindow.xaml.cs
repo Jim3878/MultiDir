@@ -33,6 +33,9 @@ public partial class MainWindow : Window
         SingleInstance.Trace("startup: theme");
         HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight);
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
+        FocusFrame.Register();
+        // Panes come and go (splits, closing the last tab, presets): keep the frame's "more than one pane" rule current.
+        Dock.LayoutChanged += (_, _) => { Dock.Layout.Updated += (_, _) => FocusFrame.Refresh(); FocusFrame.Refresh(); };
 
         SidePanel.BookmarkBar = Bookmarks;
         FolderView.OtherPanes = OtherPanesFor;
@@ -342,6 +345,7 @@ public partial class MainWindow : Window
         if (Dock.Layout.ActiveContent is not LayoutDocument doc) return;
         _lastDoc = doc;
         _lastPane = doc.Parent as LayoutDocumentPane ?? _lastPane;
+        FocusFrame.SetActive(_lastPane);
         if (doc.Content is FolderView { Tab: { } tab } view)
         {
             UpdateWindowTitle(tab);

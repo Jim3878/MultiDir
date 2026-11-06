@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ad="https://github.com/Dirkster99/AvalonDock"
         xmlns:views="clr-namespace:MultiDir.Views"
-        Title="MultiDir" Width="1400" Height="860" WindowStartupLocation="CenterScreen"
+        Title="MultiDir" Width="1400" Height="860" WindowStartupLocation="CenterScreen" Icon="Assets/MultiDir.ico"
         Background="{StaticResource Bg}" Foreground="{StaticResource Text}">
     <Window.InputBindings>
         <KeyBinding Key="T" Modifiers="Control" Command="{x:Static ApplicationCommands.New}"/>
