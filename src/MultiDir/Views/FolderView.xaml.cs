@@ -462,6 +462,13 @@ public partial class FolderView : UserControl
         _dragStart = e.GetPosition(List);
         _deferredSelect = null;
 
+        // Clicking empty space (not a scrollbar or column header) clears the selection, like Explorer.
+        if (item == null && e.ChangedButton == MouseButton.Left && Keyboard.Modifiers == ModifierKeys.None && !OnListChrome(e.OriginalSource))
+        {
+            List.SelectedItems.Clear();
+            List.Focus();
+        }
+
         // WPF collapses a multi-selection on mouse-down, which would make dragging several files impossible.
         // If the click lands on an already-selected item, keep the selection and decide on mouse-up instead.
         if (item != null && e.ChangedButton == MouseButton.Left && e.ClickCount == 1 &&
@@ -471,6 +478,17 @@ public partial class FolderView : UserControl
             List.Focus();
             e.Handled = true;
         }
+    }
+
+    /// <summary>A scrollbar or a column header of the list (clicks there are not "empty space").</summary>
+    private static bool OnListChrome(object source)
+    {
+        for (var d = source as DependencyObject; d != null; d = d is Visual ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+        {
+            if (d is System.Windows.Controls.Primitives.ScrollBar or GridViewColumnHeader) return true;
+            if (d is ListView) return false;
+        }
+        return false;
     }
 
     private void List_PreviewMouseMove(object sender, MouseEventArgs e)
