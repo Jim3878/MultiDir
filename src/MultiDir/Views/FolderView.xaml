@@ -56,6 +56,9 @@
         </GridView>
     </UserControl.Resources>
 
+    <!-- Own adorner layer, outside the list: the in-place rename box lives here, so typing in it never reaches
+         the list's own keys (Enter = open, Delete, type-to-filter…). -->
+    <AdornerDecorator x:Name="Overlay">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -145,4 +148,5 @@
 
         <TextBlock Grid.Row="2" Text="{Binding Status}" Foreground="{StaticResource TextDim}" Margin="8,2" FontSize="11"/>
     </Grid>
+    </AdornerDecorator>
 </UserControl>

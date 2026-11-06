@@ -59,22 +59,33 @@ public sealed class RenameDialog : Window
         if (dialog.ShowDialog() != true) return null;
 
         var newName = dialog._box.Text.Trim();
-        if (newName.Length == 0 || newName == oldName) return null;
         if (newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
-            MessageBox.Show(owner, "檔名不能包含下列字元：\\ / : * ? \" < > |", "重新命名", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(owner, InvalidCharsMessage, "重新命名", MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
+        return Apply(owner, fullPath, newName);
+    }
+
+    public const string InvalidCharsMessage = "檔名不能包含下列字元：\\ / : * ? \" < > |";
+
+    /// <summary>Renames <paramref name="fullPath"/> to <paramref name="newName"/> (same folder). Returns the new full
+    /// path, or null when nothing changed or it failed (the error is shown unless <paramref name="owner"/> is null).</summary>
+    public static string? Apply(Window? owner, string fullPath, string newName)
+    {
+        var oldName = Path.GetFileName(fullPath.TrimEnd('\\'));
+        newName = newName.Trim();
+        if (newName.Length == 0 || newName == oldName || newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return null;
         var target = Path.Combine(Path.GetDirectoryName(fullPath.TrimEnd('\\'))!, newName);
         try
         {
-            if (isFile) File.Move(fullPath, target);
+            if (File.Exists(fullPath)) File.Move(fullPath, target);
             else Directory.Move(fullPath, target);
             return target;
         }
         catch (Exception ex)
         {
-            MessageBox.Show(owner, ex.Message, "無法重新命名", MessageBoxButton.OK, MessageBoxImage.Warning);
+            if (owner != null) MessageBox.Show(owner, ex.Message, "無法重新命名", MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
     }

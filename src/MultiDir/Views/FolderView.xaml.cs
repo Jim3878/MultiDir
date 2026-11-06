@@ -31,6 +31,14 @@ public partial class FolderView : UserControl
         InitializeComponent();
         DataContextChanged += (_, e) => Attach(e.NewValue as FolderTab);
         List.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler(ColumnHeader_Click));
+        // The rename box sits over the list, not in it: scrolling (or resizing) the list ends the rename, like Explorer.
+        // (Only real scrolling: items arriving from the folder watcher change the extent, not the offset.)
+        List.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((_, e) =>
+        {
+            if (_rename is { } r && (Math.Abs(e.VerticalOffset - r.StartOffset.Y) > 0.5 || Math.Abs(e.HorizontalOffset - r.StartOffset.X) > 0.5
+                                     || e.ViewportWidthChange != 0 || e.ViewportHeightChange != 0))
+                EndRename(commit: true);
+        }));
         Crumbs.AddHandler(CrumbPanel.OverflowChangedEvent, new RoutedEventHandler(Crumbs_OverflowChanged));
         // Keep ☆ in sync when bookmarks change anywhere (bar right-click → 移除, another pane's star…).
         // Subscribed only while loaded, so closed tabs aren't kept alive by the static store.
@@ -80,9 +88,9 @@ public partial class FolderView : UserControl
     {
         switch (e.PropertyName)
         {
-            case nameof(FolderTab.ViewMode): ApplyViewMode(); break;
-            case nameof(FolderTab.SortKey) or nameof(FolderTab.SortDescending): UpdateSortHeaders(); break;
-            case nameof(FolderTab.Segments): UpdateCrumbs(); UpdateStar(); ScrollToTop(); break;
+            case nameof(FolderTab.ViewMode): EndRename(commit: true); ApplyViewMode(); break;
+            case nameof(FolderTab.SortKey) or nameof(FolderTab.SortDescending): EndRename(commit: true); UpdateSortHeaders(); break;
+            case nameof(FolderTab.Segments): EndRename(commit: false); UpdateCrumbs(); UpdateStar(); ScrollToTop(); break;
         }
     }
 
@@ -575,13 +583,6 @@ public partial class FolderView : UserControl
                 shift: (Keyboard.Modifiers & ModifierKeys.Shift) != 0, control: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
         }
         catch (Exception ex) { SingleInstance.Trace($"menu invoke failed ({verb}): {ex.Message}"); }
-    }
-
-    private void Rename(FileItem item)
-    {
-        if (App.IsAutomation || Window.GetWindow(this) is not { } owner) return; // never pop a dialog from a test instance
-        RenameDialog.Run(owner, item.FullPath);
-        List.Focus();
     }
 
     // ---------- drop targets ----------
