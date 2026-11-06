@@ -3,7 +3,8 @@ using System.Text.Json;
 
 namespace MultiDir.Services;
 
-public enum ViewMode { Large, List, Small }
+/// <summary>Values are stored as numbers in viewmodes.json: only ever append.</summary>
+public enum ViewMode { Large, List, Small, ExtraLarge }
 
 /// <summary>Remembers the view mode per folder (decision #8). Stored in our own settings, never desktop.ini.</summary>
 public static class ViewModeStore

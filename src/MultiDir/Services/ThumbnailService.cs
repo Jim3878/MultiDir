@@ -12,18 +12,20 @@ namespace MultiDir.Services;
 /// </summary>
 public static class ThumbnailService
 {
-    public const int Size = 96;
-    private const int CacheCapacity = 3000;
+    // Budget by memory, not count: a 320 px 超大圖 thumbnail is ~10x a 96 px one.
+    private const long CacheBytes = 256L * 1024 * 1024;
+    private static long _cachedBytes;
 
     private static readonly SemaphoreSlim Gate = new(4);
     private static readonly object CacheLock = new();
     private static readonly Dictionary<string, LinkedListNode<(string Key, ImageSource Image)>> Map = new();
     private static readonly LinkedList<(string Key, ImageSource Image)> Lru = new();
 
-    public static void Request(FileItem item, Action<ImageSource> onReady)
+    /// <summary>Requests a thumbnail of <paramref name="pixels"/> device pixels (the shell falls back to a big icon).</summary>
+    public static void Request(FileItem item, int pixels, Action<ImageSource> onReady)
     {
         if (item.IsDrive) return;
-        string key = item.FullPath + "|" + item.Modified?.Ticks;
+        string key = item.FullPath + "|" + item.Modified?.Ticks + "|" + pixels;
         if (TryGet(key, out var cached)) { onReady(cached); return; }
 
         var dispatcher = Application.Current.Dispatcher;
@@ -32,7 +34,7 @@ public static class ThumbnailService
             await Gate.WaitAsync().ConfigureAwait(false);
             try
             {
-                var img = Load(item.FullPath);
+                var img = Load(item.FullPath, pixels);
                 if (img == null) return;
                 Put(key, img);
                 _ = dispatcher.BeginInvoke(() => onReady(img));
@@ -64,16 +66,21 @@ public static class ThumbnailService
         {
             if (Map.ContainsKey(key)) return;
             Map[key] = Lru.AddFirst((key, image));
-            while (Map.Count > CacheCapacity)
+            _cachedBytes += BytesOf(image);
+            while (_cachedBytes > CacheBytes && Lru.Count > 1)
             {
                 var last = Lru.Last!;
                 Lru.RemoveLast();
                 Map.Remove(last.Value.Key);
+                _cachedBytes -= BytesOf(last.Value.Image);
             }
         }
     }
 
-    private static ImageSource? Load(string path)
+    private static long BytesOf(ImageSource image) =>
+        image is BitmapSource b ? (long)b.PixelWidth * b.PixelHeight * 4 : 0;
+
+    private static ImageSource? Load(string path, int size)
     {
         var iid = typeof(IShellItemImageFactory).GUID;
         if (SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out var factory) != 0 || factory == null)
@@ -81,7 +88,7 @@ public static class ThumbnailService
         IntPtr hbm = IntPtr.Zero;
         try
         {
-            if (factory.GetImage(new SIZE { cx = Size, cy = Size }, SIIGBF_RESIZETOFIT, out hbm) != 0 || hbm == IntPtr.Zero)
+            if (factory.GetImage(new SIZE { cx = size, cy = size }, SIIGBF_RESIZETOFIT, out hbm) != 0 || hbm == IntPtr.Zero)
                 return null;
             return FromHBitmap(hbm);
         }

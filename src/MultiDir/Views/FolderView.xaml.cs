@@ -104,6 +104,7 @@ public partial class FolderView : UserControl
     {
         if (_tab == null) return;
         var mode = _tab.ViewMode;
+        ExtraLargeBtn.IsChecked = mode == ViewMode.ExtraLarge;
         LargeBtn.IsChecked = mode == ViewMode.Large;
         ListBtn.IsChecked = mode == ViewMode.List;
         SmallBtn.IsChecked = mode == ViewMode.Small;
@@ -121,7 +122,12 @@ public partial class FolderView : UserControl
             List.View = null;
             List.ItemContainerStyle = (Style)Application.Current.Resources["TileItemStyle"];
             List.ItemsPanel = (ItemsPanelTemplate)Resources["WrapPanelTemplate"];
-            List.ItemTemplate = (DataTemplate)Resources[mode == ViewMode.Large ? "LargeTemplate" : "SmallTemplate"];
+            List.ItemTemplate = (DataTemplate)Resources[mode switch
+            {
+                ViewMode.ExtraLarge => "ExtraLargeTemplate",
+                ViewMode.Large => "LargeTemplate",
+                _ => "SmallTemplate",
+            }];
         }
     }
 
@@ -136,7 +142,7 @@ public partial class FolderView : UserControl
     {
         if (_tab == null || (Keyboard.Modifiers & ModifierKeys.Control) == 0) return;
         // Ctrl+wheel: up = bigger (Small → List → Large), down = smaller.
-        ViewMode[] order = [ViewMode.Small, ViewMode.List, ViewMode.Large];
+        ViewMode[] order = [ViewMode.Small, ViewMode.List, ViewMode.Large, ViewMode.ExtraLarge];
         int i = Array.IndexOf(order, _tab.ViewMode) + (e.Delta > 0 ? 1 : -1);
         _tab.ViewMode = order[Math.Clamp(i, 0, order.Length - 1)];
         e.Handled = true;
@@ -433,6 +439,7 @@ public partial class FolderView : UserControl
         if (!forItems && _tab.Path == FolderTab.ThisPc) return; // "本機" has no folder background menu worth showing
         var menu = forItems ? ShellContextMenu.ForItems(paths, extended) : ShellContextMenu.ForFolderBackground(_tab.Path, extended);
         if (menu == null) return;
+        menu.AddCustomTop(CustomItems(forItems ? paths : [_tab.Path], forItems));
 
         if (App.IsAutomation)
         {
@@ -449,6 +456,31 @@ public partial class FolderView : UserControl
         finally { menu.Dispose(); }
     }
 
+    /// <summary>Host hook: the other panes a folder can be opened in (label + open action), for 「在其他窗格開啟 ▸」.</summary>
+    public static Func<FolderView, IReadOnlyList<(string Label, Action<string> Open)>>? OtherPanes { get; set; }
+
+    /// <summary>MultiDir's own entries at the top of the native menu.</summary>
+    private List<ShellContextMenu.CustomItem> CustomItems(List<string> paths, bool forItems)
+    {
+        var list = new List<ShellContextMenu.CustomItem>();
+        var items = List.SelectedItems.Cast<FileItem>().ToList();
+        if (forItems && items.Count > 0 && items.All(i => i.IsDirectory))
+        {
+            var folders = items.Select(i => i.FullPath).ToList();
+            list.Add(new("在新分頁開啟", () => { foreach (var f in folders) OpenInNewTabRequested?.Invoke(this, f); }));
+            var panes = OtherPanes?.Invoke(this) ?? [];
+            list.Add(panes.Count == 0
+                ? new("在其他窗格開啟", Enabled: false)
+                : new("在其他窗格開啟", Children: panes.Select(p => new ShellContextMenu.CustomItem(p.Label, () => { foreach (var f in folders) p.Open(f); })).ToList()));
+        }
+        if (paths.Count > 0 && paths.All(p => p.Length > 0))
+            list.Add(new(paths.Count > 1 ? $"複製路徑（{paths.Count} 個）" : "複製路徑", () =>
+            {
+                try { Clipboard.SetText(string.Join(Environment.NewLine, paths)); } catch { /* clipboard busy */ }
+            }));
+        return list;
+    }
+
     /// <summary>
     /// Runs a chosen menu command. Opening folders and renaming stay inside MultiDir (navigate / new tab / rename box);
     /// everything else is executed by the shell exactly as Explorer would.
@@ -456,6 +488,7 @@ public partial class FolderView : UserControl
     public void ExecuteMenuCommand(ShellContextMenu menu, int id, List<string> paths, int x = 0, int y = 0)
     {
         if (_tab == null) return;
+        if (menu.RunCustom(id)) return; // one of MultiDir's own items
         var verb = menu.Verb(id)?.ToLowerInvariant();
         var items = List.SelectedItems.Cast<FileItem>().ToList();
         bool allFolders = items.Count > 0 && items.All(i => i.IsDirectory);

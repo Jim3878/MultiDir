@@ -21,6 +21,16 @@
             </StackPanel>
         </DataTemplate>
 
+        <!-- 超大圖: 256 DIP thumbnails for looking at pictures. -->
+        <DataTemplate x:Key="ExtraLargeTemplate">
+            <StackPanel Width="272" Margin="4,6">
+                <Image Source="{Binding ThumbnailXL}" Width="256" Height="256" Stretch="Uniform"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="Wrap" MaxHeight="34"
+                           TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
+            </StackPanel>
+        </DataTemplate>
+
         <DataTemplate x:Key="SmallTemplate">
             <StackPanel Orientation="Horizontal" Width="220" Margin="4,2">
                 <Image Source="{Binding SmallIcon}" Width="16" Height="16"/>
@@ -61,6 +71,7 @@
                     <Button Style="{StaticResource ToolButton}" Content="&#xE74A;" ToolTip="上一層" Click="Up_Click" IsEnabled="{Binding CanGoUp}"/>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="6,0,0,0">
+                    <ToggleButton x:Name="ExtraLargeBtn" Style="{StaticResource ToolButton}" Content="&#xE91B;" ToolTip="超大圖" Click="Mode_Click" Tag="ExtraLarge"/>
                     <ToggleButton x:Name="LargeBtn" Style="{StaticResource ToolButton}" Content="&#xE8B9;" ToolTip="大圖" Click="Mode_Click" Tag="Large"/>
                     <ToggleButton x:Name="ListBtn" Style="{StaticResource ToolButton}" Content="&#xE8FD;" ToolTip="列表" Click="Mode_Click" Tag="List"/>
                     <ToggleButton x:Name="SmallBtn" Style="{StaticResource ToolButton}" Content="&#xE80A;" ToolTip="小圖" Click="Mode_Click" Tag="Small"/>

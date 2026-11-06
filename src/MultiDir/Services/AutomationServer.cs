@@ -64,7 +64,9 @@ public sealed class AutomationServer
                     writer.WriteLine("<<END>>");
                 }
             }
-            catch (IOException) { /* client went away; accept the next one */ }
+            // Client went away mid-reply (or anything else): never let the pipe thread die, accept the next client.
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+            catch (Exception ex) { SingleInstance.Trace("automation pipe: " + ex.Message); }
         }
     }
 
@@ -111,7 +113,7 @@ public sealed class AutomationServer
         tab dock <id> <pane>                   move tab <id> into pane #pane
         tab close <id> | tab activate <id>
         tab new <pane> <path>                  open a folder as a new tab in pane #pane
-        tab nav <id> <path> | tab mode <id> large|list|small | tab filter <id> <text>
+        tab nav <id> <path> | tab mode <id> extralarge|large|list|small | tab filter <id> <text>
         tab sort <id> name|modified|type|size | tab items <id> [n]   (sort like a header click; list first n items)
         drop <folder> <path>... [--right] [--shift|--ctrl]   shell drop through the real drop code path
         menu                                   list the context menu the last right-click built (never shown on screen)
@@ -255,9 +257,9 @@ public sealed class AutomationServer
         {
             var view = ViewAt(win, x, y);
             if (view?.Tab == null) return "ERROR no folder view at that point";
-            ViewMode[] order = [ViewMode.Small, ViewMode.List, ViewMode.Large];
+            ViewMode[] order = [ViewMode.Small, ViewMode.List, ViewMode.Large, ViewMode.ExtraLarge];
             int i = Array.IndexOf(order, view.Tab.ViewMode) + (delta > 0 ? 1 : -1);
-            view.Tab.ViewMode = order[Math.Clamp(i, 0, 2)];
+            view.Tab.ViewMode = order[Math.Clamp(i, 0, order.Length - 1)];
             return $"OK view mode = {view.Tab.ViewMode} (ctrl+wheel applied through the view)";
         }
         var target = HitTest(win, x, y);

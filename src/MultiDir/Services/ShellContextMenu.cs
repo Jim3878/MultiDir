@@ -88,13 +88,54 @@ public sealed class ShellContextMenu : IDisposable
     /// <summary>Language-independent verb of a command ("open", "delete", "rename", "properties"…), if the handler has one.</summary>
     public string? Verb(int id)
     {
-        if (id < FirstId) return null;
+        if (id < FirstId || id >= CustomFirstId) return null;
         var sb = new StringBuilder(256);
         try { return _menu.GetCommandString((UIntPtr)(uint)(id - FirstId), GCS_VERBW, IntPtr.Zero, sb, sb.Capacity) == 0 ? sb.ToString() : null; }
         catch { return null; }
     }
 
     /// <summary>Shows the menu at a screen point (physical pixels) and returns the chosen command id, or 0.</summary>
+    // ---------- MultiDir's own items (top of the menu, decision #12: 原生選單 + 自訂項目) ----------
+
+    /// <summary>One of our own menu entries: either an action or a submenu.</summary>
+    public sealed record CustomItem(string Text, Action? Run = null, IReadOnlyList<CustomItem>? Children = null, bool Enabled = true);
+
+    private const int CustomFirstId = 0x8000; // above the shell's id range (FirstId..LastId)
+    private readonly Dictionary<int, Action> _custom = new();
+
+    /// <summary>Puts <paramref name="items"/> at the top of the menu, followed by a separator.</summary>
+    public void AddCustomTop(IReadOnlyList<CustomItem> items)
+    {
+        if (items.Count == 0) return;
+        uint pos = 0;
+        foreach (var item in items) InsertCustom(_hmenu, pos++, item);
+        InsertMenu(_hmenu, pos, MF_BYPOSITION | MF_SEPARATOR, UIntPtr.Zero, null);
+    }
+
+    private void InsertCustom(IntPtr menu, uint pos, CustomItem item)
+    {
+        uint flags = MF_BYPOSITION | MF_STRING | (item.Enabled ? 0 : MF_GRAYED);
+        if (item.Children != null)
+        {
+            var sub = CreatePopupMenu();
+            uint i = 0;
+            foreach (var c in item.Children) InsertCustom(sub, i++, c);
+            InsertMenu(menu, pos, flags | MF_POPUP, (UIntPtr)(ulong)sub, item.Text);
+            return;
+        }
+        int id = CustomFirstId + _custom.Count;
+        _custom[id] = item.Run ?? (() => { });
+        InsertMenu(menu, pos, flags, (UIntPtr)(uint)id, item.Text);
+    }
+
+    /// <summary>Runs one of our own items; false if <paramref name="id"/> is a shell command.</summary>
+    public bool RunCustom(int id)
+    {
+        if (!_custom.TryGetValue(id, out var run)) return false;
+        run();
+        return true;
+    }
+
     public int Track(HwndSource owner, int x, int y)
     {
         // Owner-drawn / lazily filled submenus (傳送到, 開啟檔案, 新增) need these messages forwarded to the handler.
@@ -153,6 +194,7 @@ public sealed class ShellContextMenu : IDisposable
     private const int SW_SHOWNORMAL = 1;
     private const uint TPM_RETURNCMD = 0x100, TPM_RIGHTBUTTON = 0x2;
     private const int WM_INITMENUPOPUP = 0x117, WM_DRAWITEM = 0x2B, WM_MEASUREITEM = 0x2C, WM_MENUCHAR = 0x120;
+    private const uint MF_STRING = 0x0, MF_GRAYED = 0x1, MF_POPUP = 0x10, MF_SEPARATOR = 0x800, MF_BYPOSITION = 0x400;
     private const uint MIIM_ID = 0x2, MIIM_SUBMENU = 0x4, MIIM_STRING = 0x40, MIIM_FTYPE = 0x100, MFT_SEPARATOR = 0x800;
 
     private static readonly Guid IID_IShellItem = new("43826d1e-e718-42ee-bc55-a1e261c37bfe");
@@ -239,6 +281,7 @@ public sealed class ShellContextMenu : IDisposable
     [DllImport("shell32.dll")]
     private static extern int SHCreateShellItemArrayFromIDLists(uint cidl, IntPtr[] rgpidl, out IShellItemArray ppsiItemArray);
     [DllImport("user32.dll")] private static extern IntPtr CreatePopupMenu();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool InsertMenu(IntPtr hMenu, uint position, uint flags, UIntPtr idNewItem, string? text);
     [DllImport("user32.dll")] private static extern bool DestroyMenu(IntPtr hMenu);
     [DllImport("user32.dll")] private static extern int GetMenuItemCount(IntPtr hMenu);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern bool GetMenuItemInfo(IntPtr hMenu, uint item, bool byPosition, ref MENUITEMINFO info);

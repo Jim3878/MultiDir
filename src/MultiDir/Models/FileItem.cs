@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.IO;
+using System.Windows;
 using System.Windows.Media;
 using MultiDir.Services;
 
@@ -30,25 +31,33 @@ public sealed class FileItem : INotifyPropertyChanged
     public ImageSource? SmallIcon => ShellIcons.GetIcon(this, large: false);
 
     /// <summary>
-    /// Large-mode image. Returns the 32px icon until the async thumbnail arrives.
+    /// 大圖 image (96 DIP). Returns the 32px icon until the async thumbnail arrives.
     /// Only realized (visible) items ever touch this, so only they get thumbnails.
     /// </summary>
-    public ImageSource? Thumbnail
+    public ImageSource? Thumbnail => ThumbnailOf(96, ref _thumbnail, ref _thumbnailRequested, nameof(Thumbnail));
+
+    /// <summary>超大圖 image (256 DIP), for browsing pictures.</summary>
+    public ImageSource? ThumbnailXL => ThumbnailOf(256, ref _thumbnailXL, ref _thumbnailXLRequested, nameof(ThumbnailXL));
+
+    private ImageSource? _thumbnailXL;
+    private bool _thumbnailXLRequested;
+
+    private ImageSource? ThumbnailOf(int dip, ref ImageSource? field, ref bool requested, string property)
     {
-        get
+        if (field != null) return field;
+        if (!requested)
         {
-            if (_thumbnail != null) return _thumbnail;
-            if (!_thumbnailRequested)
+            requested = true;
+            // Ask for device pixels so thumbnails stay sharp at 125 % / 150 % scaling.
+            double scale = Application.Current?.MainWindow is { } w ? VisualTreeHelper.GetDpi(w).DpiScaleX : 1;
+            bool xl = property == nameof(ThumbnailXL);
+            ThumbnailService.Request(this, (int)Math.Ceiling(dip * scale), img =>
             {
-                _thumbnailRequested = true;
-                ThumbnailService.Request(this, img =>
-                {
-                    _thumbnail = img;
-                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Thumbnail)));
-                });
-            }
-            return ShellIcons.GetIcon(this, large: true);
+                if (xl) _thumbnailXL = img; else _thumbnail = img;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
+            });
         }
+        return ShellIcons.GetIcon(this, large: true);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

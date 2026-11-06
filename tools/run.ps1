@@ -4,7 +4,7 @@
   builds, then starts the new build detached so this terminal is free again.
 
 .EXAMPLE
-  ./tools/run.ps1            # quit running MultiDir → build → start
+  ./tools/run.ps1            # quit running MultiDir -> build -> start
   ./tools/run.ps1 -NoStart   # only quit + build
 #>
 param([switch]$NoStart)
@@ -15,7 +15,7 @@ $exe = Join-Path $PSScriptRoot "..\src\MultiDir\bin\Debug\net8.0-windows\MultiDi
 # 1) Quit the running MultiDir (never the off-screen automation test instances).
 $running = @(Get-CimInstance Win32_Process -Filter "Name = 'MultiDir.exe'" | Where-Object { $_.CommandLine -notlike "*--automation*" })
 if ($running.Count -gt 0) {
-  # Builds that know the "::exit" pipe message quit gracefully (session saved, like tray → 結束).
+  # Builds that know the "::exit" pipe message quit gracefully (session saved, like tray menu Exit).
   # Older builds don't: those are stopped instead (their last 30 s autosave is kept).
   $dll = Join-Path (Split-Path $running[0].ExecutablePath) "MultiDir.dll"
   $graceful = $false
@@ -30,7 +30,7 @@ if ($running.Count -gt 0) {
       $pipe.Connect(2000)
       $w = New-Object System.IO.StreamWriter($pipe, (New-Object System.Text.UTF8Encoding($false)))
       $w.WriteLine("::exit"); $w.Dispose(); $pipe.Dispose()
-      "asked MultiDir to quit…"
+      "asked MultiDir to quit..."
     } catch { $graceful = $false }
   }
   foreach ($p in $running) {

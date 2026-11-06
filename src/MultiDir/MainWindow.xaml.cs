@@ -35,6 +35,7 @@ public partial class MainWindow : Window
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
 
         SidePanel.BookmarkBar = Bookmarks;
+        FolderView.OtherPanes = OtherPanesFor;
         if (!TryRestoreSession()) ApplyDefaultLayout();
         SingleInstance.Trace("startup: layout");
         UpdateDefaultHandlerButton();
@@ -148,6 +149,25 @@ public partial class MainWindow : Window
         DefaultHandlerBtn.Content = on ? "✓ 預設開啟工具" : "設為預設開啟工具";
         DefaultHandlerBtn.IsEnabled = !App.IsAutomation;
         DefaultHandlerBtn.ToolTip = on ? "MultiDir 是目前的資料夾開啟工具，按一下取消" : "讓資料夾、磁碟預設用 MultiDir 開啟";
+    }
+
+    /// <summary>
+    /// Panes other than <paramref name="view"/>'s, labelled by their current tab (「Downloads」, 「src（浮動）」…),
+    /// each opening a folder as a new active tab there. Used by 「在其他窗格開啟 ▸」.
+    /// </summary>
+    private IReadOnlyList<(string Label, Action<string> Open)> OtherPanesFor(FolderView view)
+    {
+        var own = Dock.Layout.Descendents().OfType<LayoutDocument>().FirstOrDefault(d => d.Content == view)?.Parent;
+        var panes = Dock.Layout.Descendents().OfType<LayoutDocumentPane>().Where(p => p != own && p.ChildrenCount > 0).ToList();
+        var labels = panes.Select(p =>
+        {
+            var title = (p.SelectedContent ?? p.Children[0]).Title;
+            return p.FindParent<LayoutDocumentFloatingWindow>() != null ? $"{title}（浮動）" : title;
+        }).ToList();
+        // Same title in two panes: number them so they can be told apart.
+        for (int i = 0; i < labels.Count; i++)
+            if (labels.Count(l => l == labels[i]) > 1) labels[i] = $"{labels[i]}（{i + 1}）";
+        return panes.Select((p, i) => (labels[i], (Action<string>)(path => OpenTab(path, p)))).ToList();
     }
 
     // ---------- sidebar ----------
