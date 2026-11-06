@@ -2,6 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
+             xmlns:views="clr-namespace:MultiDir.Views"
              Background="{StaticResource Bg}">
     <UserControl.Resources>
         <!-- All three modes share one ListView and one item collection; switching only swaps these. -->
@@ -100,11 +101,16 @@
                 <Border x:Name="CrumbHost" Background="{StaticResource Bg}" BorderBrush="{StaticResource Border}" BorderThickness="1"
                         CornerRadius="3" Height="24" Margin="6,0,0,0" MouseLeftButtonDown="CrumbHost_MouseLeftButtonDown" Cursor="IBeam">
                     <Grid>
-                        <ItemsControl x:Name="Crumbs" VerticalAlignment="Center" Cursor="Arrow" HorizontalAlignment="Left"
+                        <DockPanel x:Name="CrumbBar">
+                        <!-- ‹‹ = the leading folders that didn't fit (CrumbPanel hides them so the current folder stays visible). -->
+                        <Button x:Name="CrumbOverflow" DockPanel.Dock="Left" Style="{StaticResource CrumbButton}" Height="20" Padding="5,0"
+                                Content="&#xE76B;&#xE76B;" FontFamily="{StaticResource IconFont}" FontSize="8" Cursor="Arrow"
+                                ToolTip="上層資料夾" Visibility="Collapsed" Click="CrumbOverflow_Click"/>
+                        <ItemsControl x:Name="Crumbs" VerticalAlignment="Center" Cursor="Arrow" HorizontalAlignment="Stretch" ClipToBounds="True"
                                       AllowDrop="True" DragEnter="Crumbs_DragOver" DragOver="Crumbs_DragOver"
                                       DragLeave="Crumbs_DragLeave" Drop="Crumbs_Drop">
                             <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+                                <ItemsPanelTemplate><views:CrumbPanel/></ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -117,6 +123,7 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        </DockPanel>
                         <TextBox x:Name="PathBox" Style="{StaticResource FieldBox}" BorderThickness="0" Visibility="Collapsed"
                                  KeyDown="PathBox_KeyDown" LostKeyboardFocus="PathBox_LostKeyboardFocus"/>
                     </Grid>

@@ -19,6 +19,7 @@ public partial class FolderView : UserControl
         InitializeComponent();
         DataContextChanged += (_, e) => Attach(e.NewValue as FolderTab);
         List.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler(ColumnHeader_Click));
+        Crumbs.AddHandler(CrumbPanel.OverflowChangedEvent, new RoutedEventHandler(Crumbs_OverflowChanged));
         // Keep ☆ in sync when bookmarks change anywhere (bar right-click → 移除, another pane's star…).
         // Subscribed only while loaded, so closed tabs aren't kept alive by the static store.
         Action onBookmarks = UpdateStar;
@@ -165,13 +166,34 @@ public partial class FolderView : UserControl
 
     private sealed record Crumb(string Label, string Path, Visibility SeparatorVisibility);
 
+    private int _hiddenCrumbs;
+
+    private void Crumbs_OverflowChanged(object sender, RoutedEventArgs e)
+    {
+        _hiddenCrumbs = e.OriginalSource is CrumbPanel p ? p.HiddenCount : 0;
+        CrumbOverflow.Visibility = _hiddenCrumbs > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>‹‹ lists the hidden leading folders (nearest first, like Explorer); click one to go there.</summary>
+    private void CrumbOverflow_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tab == null || _hiddenCrumbs == 0) return;
+        var items = _tab.Segments.Take(_hiddenCrumbs).Reverse()
+            .Select(s => (FlyoutItem?)new FlyoutItem
+            {
+                Header = s.Path == FolderTab.ThisPc ? "本機" : s.Path, Click = () => _tab?.Navigate(s.Path),
+                MiddleClick = () => OpenInNewTabRequested?.Invoke(this, s.Path),
+            }).ToList();
+        Flyout.ShowBelow(CrumbOverflow, items);
+    }
+
     private void CrumbHost_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (_tab == null || IsEditingPath) return;
         IsEditingPath = true;
         PathBox.Text = _tab.Path;
         PathBox.Visibility = Visibility.Visible;
-        Crumbs.Visibility = Visibility.Hidden;
+        CrumbBar.Visibility = Visibility.Hidden;
         e.Handled = true;
 
         // Take focus only after this click has finished activating the pane (AvalonDock moves focus on
@@ -215,7 +237,7 @@ public partial class FolderView : UserControl
         IsEditingPath = false;
         if (Window.GetWindow(this) is { } w) w.PreviewMouseDown -= Window_PreviewMouseDownWhileEditing;
         PathBox.Visibility = Visibility.Collapsed;
-        Crumbs.Visibility = Visibility.Visible;
+        CrumbBar.Visibility = Visibility.Visible;
         if (commit && _tab != null && !string.Equals(PathBox.Text.Trim(), _tab.Path, StringComparison.OrdinalIgnoreCase))
             _tab.Navigate(PathBox.Text);
     }

@@ -92,6 +92,10 @@ public static class Flyout
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(3),
             Child = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 600 },
         };
+        // A popup inherits fonts from what opened it (the ‹‹ button uses the icon font at 8 pt): always use normal text.
+        TextElement.SetFontFamily(border, SystemFonts.MessageFontFamily);
+        TextElement.SetFontSize(border, 12);
+        TextElement.SetFontWeight(border, FontWeights.Normal);
         // A click anywhere in the drop-down / submenus dismisses the right-click layer on top of them.
         if (!context) border.PreviewMouseDown += (_, _) => CloseContext();
         var popup = new Popup
