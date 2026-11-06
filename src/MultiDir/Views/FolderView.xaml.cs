@@ -243,6 +243,17 @@ public partial class FolderView : UserControl
                 _tab.GoUp(); e.Handled = true; break;
             case Key.F5:
                 _tab.Refresh(); e.Handled = true; break;
+            case Key.Apps:
+            case Key.System when e.SystemKey == Key.F10 && (Keyboard.Modifiers & ModifierKeys.Shift) != 0:
+            case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) != 0:
+                ShowContextMenuForKeyboard(); e.Handled = true; break;
+            case Key.F2 when List.SelectedItem is FileItem { IsDrive: false } renameItem:
+                Rename(renameItem); e.Handled = true; break;
+            case Key.Delete when !App.IsAutomation && SelectedPaths() is { Count: > 0 } toDelete:
+                // Same as Explorer: 資源回收筒 with confirmation; Shift+Delete deletes permanently (also confirmed).
+                using (var cm = ShellContextMenu.ForItems(toDelete))
+                    cm?.InvokeVerb("delete", Hwnd(), _tab.Path, shift: (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
+                e.Handled = true; break;
         }
     }
 
@@ -268,6 +279,7 @@ public partial class FolderView : UserControl
     private void List_PreviewMouseButtonDown(object sender, MouseButtonEventArgs e)
     {
         var item = ItemFromSource(e.OriginalSource);
+        _dragged = false;
         _dragArmed = item != null;
         _dragStart = e.GetPosition(List);
         _deferredSelect = null;
@@ -295,6 +307,7 @@ public partial class FolderView : UserControl
         _deferredSelect = null;
         var paths = List.SelectedItems.Cast<FileItem>().Where(i => !i.IsDrive).Select(i => i.FullPath).ToList();
         if (paths.Count == 0) return;
+        _dragged = true;
         ShellDragDrop.DoDragDrop(Window.GetWindow(this)!, paths);
         e.Handled = true;
     }
@@ -302,12 +315,124 @@ public partial class FolderView : UserControl
     private void List_PreviewMouseUp(object sender, MouseButtonEventArgs e)
     {
         _dragArmed = false;
+        if (e.ChangedButton == MouseButton.Right)
+        {
+            if (!_dragged && !IsInside<System.Windows.Controls.Primitives.ScrollBar>(e.OriginalSource)
+                && !IsInside<GridViewColumnHeader>(e.OriginalSource)) ShowContextMenu(e);
+            _dragged = false;
+            e.Handled = true;
+            return;
+        }
         if (_deferredSelect != null && e.ChangedButton == MouseButton.Left)
         {
             List.SelectedItems.Clear();
             List.SelectedItem = _deferredSelect;
         }
         _deferredSelect = null;
+    }
+
+    // ---------- native context menu (the real Explorer menu) ----------
+
+    private bool _dragged;
+
+    /// <summary>Automation: the last menu built (test instances never show it on screen).</summary>
+    public static (FolderView View, ShellContextMenu Menu, List<string> Paths)? LastAutomationMenu { get; private set; }
+
+    private IntPtr Hwnd() => PresentationSource.FromVisual(this) is System.Windows.Interop.HwndSource src ? src.Handle : IntPtr.Zero;
+
+    private List<string> SelectedPaths() =>
+        List.SelectedItems.Cast<FileItem>().Select(i => i.FullPath).ToList();
+
+    private void ShowContextMenu(MouseButtonEventArgs e)
+    {
+        var item = ItemFromSource(e.OriginalSource);
+        if (item != null && !List.SelectedItems.Contains(item))
+        {
+            List.SelectedItems.Clear();
+            List.SelectedItem = item;
+        }
+        else if (item == null)
+        {
+            List.SelectedItems.Clear(); // empty area → the folder's own menu (新增 / 貼上 / 內容)
+        }
+        var screen = List.PointToScreen(e.GetPosition(List));
+        OpenMenu(item != null, (int)screen.X, (int)screen.Y);
+    }
+
+    private static bool IsInside<T>(object source) where T : DependencyObject
+    {
+        for (var d = source as DependencyObject; d != null; d = VisualTreeHelper.GetParent(d))
+            if (d is T) return true;
+        return false;
+    }
+
+    private void ShowContextMenuForKeyboard()
+    {
+        // Like Explorer: at the focused/selected item, else at the top-left of the list.
+        var anchor = (List.SelectedItem is { } sel ? List.ItemContainerGenerator.ContainerFromItem(sel) as FrameworkElement : null) ?? List;
+        var screen = anchor.PointToScreen(new Point(16, anchor.ActualHeight > 40 ? 16 : anchor.ActualHeight / 2));
+        OpenMenu(List.SelectedItems.Count > 0, (int)screen.X, (int)screen.Y);
+    }
+
+    private void OpenMenu(bool forItems, int x, int y)
+    {
+        if (_tab == null) return;
+        bool extended = (Keyboard.Modifiers & ModifierKeys.Shift) != 0; // Shift+右鍵: 複製路徑、在此開啟 PowerShell…
+        var paths = forItems ? SelectedPaths() : new List<string>();
+        if (!forItems && _tab.Path == FolderTab.ThisPc) return; // "本機" has no folder background menu worth showing
+        var menu = forItems ? ShellContextMenu.ForItems(paths, extended) : ShellContextMenu.ForFolderBackground(_tab.Path, extended);
+        if (menu == null) return;
+
+        if (App.IsAutomation)
+        {
+            LastAutomationMenu?.Menu.Dispose();
+            LastAutomationMenu = (this, menu, paths);
+            return;
+        }
+        try
+        {
+            if (PresentationSource.FromVisual(this) is not System.Windows.Interop.HwndSource src) return;
+            int id = menu.Track(src, x, y);
+            if (id > 0) ExecuteMenuCommand(menu, id, paths, x, y);
+        }
+        finally { menu.Dispose(); }
+    }
+
+    /// <summary>
+    /// Runs a chosen menu command. Opening folders and renaming stay inside MultiDir (navigate / new tab / rename box);
+    /// everything else is executed by the shell exactly as Explorer would.
+    /// </summary>
+    public void ExecuteMenuCommand(ShellContextMenu menu, int id, List<string> paths, int x = 0, int y = 0)
+    {
+        if (_tab == null) return;
+        var verb = menu.Verb(id)?.ToLowerInvariant();
+        var items = List.SelectedItems.Cast<FileItem>().ToList();
+        bool allFolders = items.Count > 0 && items.All(i => i.IsDirectory);
+        switch (verb)
+        {
+            case "open" or "explore" when allFolders && items.Count == 1:
+                _tab.Navigate(items[0].FullPath);
+                return;
+            case "open" or "explore" or "opennewwindow" or "opennewtab" when allFolders:
+                foreach (var dir in items) OpenInNewTabRequested?.Invoke(this, dir.FullPath);
+                return;
+            case "rename" when items.Count == 1 && !items[0].IsDrive:
+                Rename(items[0]);
+                return;
+        }
+        try
+        {
+            menu.Invoke(id, Hwnd(), _tab.Path == FolderTab.ThisPc ? null : _tab.Path, x, y,
+                shift: (Keyboard.Modifiers & ModifierKeys.Shift) != 0, control: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+        }
+        catch (Exception ex) { SingleInstance.Trace($"menu invoke failed ({verb}): {ex.Message}"); }
+    }
+
+    private void Rename(FileItem item)
+    {
+        if (App.IsAutomation || Window.GetWindow(this) is not { } owner) return; // never pop a dialog from a test instance
+        RenameDialog.Run(owner, item.FullPath);
+        List.Focus();
     }
 
     // ---------- drop targets ----------
