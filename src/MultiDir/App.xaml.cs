@@ -68,6 +68,7 @@ public partial class App : Application
     {
         SingleInstance.Trace("exit: OnExit");
         ViewModeStore.Save();
+        HistoryStore.Save();
         Instance?.Dispose();
         (MainWindow as MainWindow)?.TrayIcon?.Dispose();
         base.OnExit(e);

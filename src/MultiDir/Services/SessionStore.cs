@@ -20,6 +20,10 @@ public sealed class SessionState
     public double Width { get; set; }
     public double Height { get; set; }
     public bool Maximized { get; set; }
+    public bool SidebarVisible { get; set; } = true;
+    public double SidebarWidth { get; set; } = 240;
+    public bool TreePinned { get; set; }
+    public List<string> CollapsedSections { get; set; } = new();
 }
 
 /// <summary>

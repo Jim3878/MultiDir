@@ -83,6 +83,56 @@
             </Setter>
         </Style>
 
+        <!-- Sidebar trees (bookmarks / folders): flat dark rows, chevron expander, indent per level. -->
+        <Style x:Key="DarkTreeItem" TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <StackPanel>
+                            <Border x:Name="row" Background="Transparent" CornerRadius="3" Padding="2,2,6,2">
+                                <DockPanel>
+                                    <ToggleButton x:Name="exp" Width="16" Height="16" Focusable="False" ClickMode="Press"
+                                                  IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                        <ToggleButton.Template>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border Background="Transparent">
+                                                    <TextBlock x:Name="g" Text="&#xE76C;" FontFamily="{StaticResource IconFont}" FontSize="8"
+                                                               Foreground="{StaticResource TextDim}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsChecked" Value="True">
+                                                        <Setter TargetName="g" Property="Text" Value="&#xE70D;"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </ToggleButton.Template>
+                                    </ToggleButton>
+                                    <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Border>
+                            <ItemsPresenter x:Name="kids" Margin="14,0,0,0"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="False">
+                                <Setter TargetName="kids" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                            <Trigger Property="HasItems" Value="False">
+                                <Setter TargetName="exp" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                            <Trigger SourceName="row" Property="IsMouseOver" Value="True">
+                                <Setter TargetName="row" Property="Background" Value="{StaticResource SurfaceHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="row" Property="Background" Value="{StaticResource Selection}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Flat icon button used in the pane toolbar. -->
         <Style x:Key="ToolButton" TargetType="ButtonBase">
             <Setter Property="Foreground" Value="{StaticResource Text}"/>

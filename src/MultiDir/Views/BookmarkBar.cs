@@ -173,6 +173,19 @@ public sealed class BookmarkBar : DockPanel
     }
 
     /// <summary>Right-click menu of a button on the bar (built when it opens, so it reflects the current tree).</summary>
+    /// <summary>Same right-click menu for a bookmark/folder shown elsewhere (the sidebar's 書籤 section).</summary>
+    public ContextMenu CreateMenu(Bookmark b) => BarMenu(b);
+
+    /// <summary>Open a bookmark (or, for a folder with <paramref name="newTab"/>, everything in it) — used by the sidebar.</summary>
+    public void Activate(Bookmark b, bool newTab)
+    {
+        if (b.IsFolder) { if (newTab) OpenAll(b); }
+        else Open(b, newTab);
+    }
+
+    /// <summary>Folder icon / shell icon used for a bookmark entry.</summary>
+    public static FrameworkElement CreateIcon(Bookmark b) => IconFor(b);
+
     private ContextMenu BarMenu(Bookmark b)
     {
         var menu = DarkMenu();

@@ -34,6 +34,7 @@ public partial class MainWindow : Window
         HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight);
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
 
+        SidePanel.BookmarkBar = Bookmarks;
         if (!TryRestoreSession()) ApplyDefaultLayout();
         SingleInstance.Trace("startup: layout");
         UpdateDefaultHandlerButton();
@@ -149,6 +150,21 @@ public partial class MainWindow : Window
         DefaultHandlerBtn.ToolTip = on ? "MultiDir 是目前的資料夾開啟工具，按一下取消" : "讓資料夾、磁碟預設用 MultiDir 開啟";
     }
 
+    // ---------- sidebar ----------
+
+    private double _sidebarWidth = 240;
+
+    private void SidebarBtn_Click(object sender, RoutedEventArgs e) => SetSidebar(SidebarBtn.IsChecked == true);
+
+    /// <summary>Shows/hides the whole sidebar, remembering its width.</summary>
+    public void SetSidebar(bool visible)
+    {
+        if (!visible && SidePanel.Visibility == Visibility.Visible && SidebarColumn.ActualWidth > 0) _sidebarWidth = SidebarColumn.ActualWidth;
+        SidePanel.Visibility = SidebarSplitter.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        SidebarColumn.Width = visible ? new GridLength(_sidebarWidth) : new GridLength(0);
+        SidebarBtn.IsChecked = visible;
+    }
+
     // ---------- bookmark bar ----------
 
     /// <summary>Bookmark click → the active tab goes there; Ctrl/middle-click → new tab in the active pane.</summary>
@@ -175,6 +191,10 @@ public partial class MainWindow : Window
         foreach (var doc in Dock.Layout.Descendents().OfType<LayoutDocument>())
             if (doc.ContentId != null && doc.Content is FolderView { Tab: { } tab })
                 state.Tabs[doc.ContentId] = new TabState { Path = tab.Path, Back = tab.BackHistory, Forward = tab.ForwardHistory };
+        state.SidebarVisible = SidePanel.Visibility == Visibility.Visible;
+        state.SidebarWidth = state.SidebarVisible ? SidebarColumn.ActualWidth : _sidebarWidth;
+        state.TreePinned = SidePanel.Pinned;
+        state.CollapsedSections = SidePanel.CollapsedSections;
         SessionStore.Save(state, w => new XmlLayoutSerializer(Dock).Serialize(w));
         ViewModeStore.Save();
     }
@@ -217,6 +237,11 @@ public partial class MainWindow : Window
             if (state.Maximized) WindowState = WindowState.Maximized;
         }
 
+        _sidebarWidth = Math.Max(120, state.SidebarWidth);
+        SetSidebar(state.SidebarVisible);
+        SidePanel.Pinned = state.TreePinned;
+        SidePanel.CollapsedSections = state.CollapsedSections;
+
         (docs.FirstOrDefault(d => d.ContentId == state.ActiveTab) ?? docs[0]).IsActive = true;
         return true;
     }
@@ -241,7 +266,12 @@ public partial class MainWindow : Window
         {
             doc.Title = tab.Title;
             doc.ToolTip = PathLabel(tab.Path);
-            if (doc == _lastDoc) UpdateWindowTitle(tab);
+            HistoryStore.Add(tab.Path);
+            if (doc == _lastDoc)
+            {
+                UpdateWindowTitle(tab);
+                SidePanel.SyncTo(tab.Path); // the tree follows the focused tab
+            }
         };
         view.OpenInNewTabRequested += (v, path) => OpenTab(path, doc.Parent as LayoutDocumentPane, activate: false);
         return view;
@@ -271,6 +301,7 @@ public partial class MainWindow : Window
         if (doc.Content is FolderView { Tab: { } tab } view)
         {
             UpdateWindowTitle(tab);
+            SidePanel.SyncTo(tab.Path);
             Dispatcher.BeginInvoke(view.FocusList, System.Windows.Threading.DispatcherPriority.Input);
         }
     }

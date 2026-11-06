@@ -94,6 +94,7 @@ public sealed class AutomationServer
             "save" => Save(),
             "menu" => Menu(args),
             "bookmark" => BookmarkCommand(args),
+            "sidebar" => SidebarCommand(args),
             _ => "ERROR unknown command; try: help",
         };
     }
@@ -116,6 +117,7 @@ public sealed class AutomationServer
         menu pick <verb or text>               run an item of that menu (avoid ones that open dialogs or touch the clipboard)
         bookmark list | add <path> | open <index> [new] | remove <index> | move <index> <newIndex>
         bookmark folder <name> | into <index> <folderIndex>   (indexes = top level of the bar)
+        sidebar [show|hide|pin|unpin|collapse <key>|expand <key>]   state of the sidebar (keys: bookmarks, tree, history)
         save                                   save the session now (as on close); restart with: mdctl start keep
         zone <x> <y>                           which pane header (re-dock drop zone) is at main-window pixel x,y
         wait <ms>
@@ -466,6 +468,23 @@ public sealed class AutomationServer
         Pump();
         _window.UpdateLayout();
         return "OK" + Environment.NewLine + _window.Bookmarks.Describe();
+    }
+
+    private string SidebarCommand(List<string> a)
+    {
+        var side = _window.SidePanel;
+        switch (a.FirstOrDefault())
+        {
+            case "show": _window.SetSidebar(true); break;
+            case "hide": _window.SetSidebar(false); break;
+            case "pin": side.Pinned = true; break;
+            case "unpin": side.Pinned = false; break;
+            case "collapse": side.CollapsedSections = side.CollapsedSections.Append(a[1]).ToList(); break;
+            case "expand": side.CollapsedSections = side.CollapsedSections.Where(k => k != a[1]).ToList(); break;
+        }
+        var until = DateTime.Now.AddMilliseconds(600); // let the tree finish loading/expanding
+        while (DateTime.Now < until) { Pump(); Thread.Sleep(20); }
+        return $"visible={side.IsVisible} " + side.Describe();
     }
 
     private string Save() { _window.SaveSession(); return $"OK saved to {AppPaths.DataDir}"; }

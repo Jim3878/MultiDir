@@ -23,6 +23,8 @@
                 <Button x:Name="DefaultHandlerBtn" DockPanel.Dock="Right" Click="DefaultHandler_Click"
                         Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"/>
                 <!-- Presets are helpers only — dragging tabs is the primary way to split. -->
+                <ToggleButton x:Name="SidebarBtn" DockPanel.Dock="Left" Style="{StaticResource ToolButton}" Content="&#xE700;"
+                              ToolTip="側邊欄（書籤 / 樹狀目錄 / 歷史）" IsChecked="True" Click="SidebarBtn_Click" Margin="0,0,4,0"/>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal"
                             ToolTip="拖曳分頁到窗格邊緣即可分割、拖到分頁列或功能列併入、拖出視窗變浮動">
                     <Button Style="{StaticResource ToolButton}" Content="&#xE739;" ToolTip="單格" Click="Preset_Click" Tag="1"/>
@@ -35,6 +37,15 @@
         </Border>
 
         <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SidebarColumn" Width="240" MinWidth="0"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <views:Sidebar x:Name="SidePanel" OpenRequested="Bookmarks_OpenRequested"/>
+            <GridSplitter x:Name="SidebarSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Background="{StaticResource Surface}" ResizeBehavior="PreviousAndNext" Focusable="False"/>
+        <Grid Grid.Column="2">
         <ad:DockingManager x:Name="Dock" AllowMixedOrientation="True"
                            DocumentClosed="Dock_DocumentClosed"
                            PreviewMouseDown="Dock_PreviewMouseDown"
@@ -46,6 +57,7 @@
             <Border x:Name="HeaderDropHighlight" Visibility="Collapsed" CornerRadius="3"
                     Background="#553574F0" BorderBrush="{StaticResource Accent}" BorderThickness="2"/>
         </Canvas>
+        </Grid>
         </Grid>
     </DockPanel>
 </Window>
