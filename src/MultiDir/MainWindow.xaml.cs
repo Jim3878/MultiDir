@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     /// <summary>Recently closed tabs for Ctrl+Shift+T: path + the pane it lived in.</summary>
     private readonly Stack<(string Path, LayoutDocumentPane? Pane)> _closed = new();
     private LayoutDocumentPane? _lastPane;
+    private LayoutDocumentPane? _lastDockedPane; // last focused pane inside the main window (not floating)
     private int _nextTabId;
 
     /// <summary>Big "drop on a pane's tab strip / toolbar" re-dock zone for floating windows.</summary>
@@ -31,7 +32,13 @@ public partial class MainWindow : Window
         SingleInstance.Trace("startup: InitializeComponent");
         Dock.Theme = new Vs2013DarkTheme();
         SingleInstance.Trace("startup: theme");
-        HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight);
+        HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight)
+        {
+            IsOverBookmarkBar = pt => Bookmarks.ContainsScreenPoint(pt),
+            BookmarkBarHover = (pt, docs) => Bookmarks.ShowTabHover(pt,
+                docs.Select(d => d.Content is FolderView { Tab.Path: var p } ? p : "").Where(p => p.Length > 0).ToList()),
+            DroppedOnBookmarkBar = TabsDroppedOnBookmarkBar,
+        };
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
         FocusFrame.Register();
         // Panes come and go (splits, closing the last tab, presets): keep the frame's "more than one pane" rule current.
@@ -196,6 +203,22 @@ public partial class MainWindow : Window
         return panes.Select((p, i) => (labels[i], (Action<string>)(path => OpenTab(path, p)))).ToList();
     }
 
+    /// <summary>
+    /// A tab dragged onto the bookmark bar: bookmark its folder there, then put the tab back where it came from
+    /// (it was only floated by the drag).
+    /// </summary>
+    internal void TabsDroppedOnBookmarkBar(List<LayoutDocument> docs, Point screenPx)
+    {
+        Bookmarks.AddAt(screenPx, docs.Select(d => d.Content is FolderView { Tab.Path: var p } ? p : "").Where(p => p.Length > 0));
+        // Where it lived before floating: AvalonDock remembers it (internal), else the last docked pane we saw active.
+        var previous = typeof(LayoutContent).GetProperty("PreviousContainer", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        bool Docked(LayoutDocumentPane? p) => p != null && p.Root == Dock.Layout && p.FindParent<LayoutDocumentFloatingWindow>() == null;
+        var home = docs.Select(d => previous?.GetValue(d) as LayoutDocumentPane).FirstOrDefault(Docked)
+                   ?? (Docked(_lastDockedPane) ? _lastDockedPane : null)
+                   ?? Dock.Layout.Descendents().OfType<LayoutDocumentPane>().FirstOrDefault(Docked);
+        if (home != null) HeaderDocking.DockInto(docs, home);
+    }
+
     // ---------- sidebar ----------
 
     private double _sidebarWidth = 240;
@@ -345,6 +368,7 @@ public partial class MainWindow : Window
         if (Dock.Layout.ActiveContent is not LayoutDocument doc) return;
         _lastDoc = doc;
         _lastPane = doc.Parent as LayoutDocumentPane ?? _lastPane;
+        if (_lastPane?.FindParent<LayoutDocumentFloatingWindow>() == null) _lastDockedPane = _lastPane;
         FocusFrame.SetActive(_lastPane);
         if (doc.Content is FolderView { Tab: { } tab } view)
         {

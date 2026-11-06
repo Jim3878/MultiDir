@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -492,6 +492,9 @@ public sealed class Sidebar : DockPanel
             SetHot(item != null ? RowOf(item) : null);
             ShellDragDrop.Leave();
             e.Effects = DragDropEffects.Link;
+            var into = item?.Tag as Bookmark;
+            DragHint.Show(((UIElement)sender).PointToScreen(e.GetPosition((UIElement)sender)), "\uE734",
+                          into != null ? $"加入書籤資料夾「{into.Name}」" : "加入書籤");
             return;
         }
         var target = item != null ? FolderPathOf(item) : null;

@@ -47,6 +47,9 @@ public static class BookmarkStore
     /// <summary>Raised after every change (the bar and the ☆ buttons refresh from it).</summary>
     public static event Action? Changed;
 
+    /// <summary>Raised after a bookmark was added (anywhere: ☆, drag & drop, a dragged tab…) — the bar flashes it.</summary>
+    public static event Action<Bookmark>? Added;
+
     public static bool Contains(string path) => Find(path) != null;
 
     /// <summary>The bookmark for a folder path, anywhere in the tree.</summary>
@@ -60,8 +63,10 @@ public static class BookmarkStore
         var trimmed = path.TrimEnd('\\');
         var name = System.IO.Path.GetFileName(trimmed);
         if (name.Length == 0) name = trimmed; // drive root: "C:"
-        Insert(new Bookmark { Name = name, Path = path }, ListOf(parent), index);
+        var bookmark = new Bookmark { Name = name, Path = path };
+        Insert(bookmark, ListOf(parent), index);
         Save();
+        Added?.Invoke(bookmark);
     }
 
     public static Bookmark AddFolder(string name, int index = -1, Bookmark? parent = null)

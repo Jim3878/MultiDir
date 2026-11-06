@@ -36,6 +36,7 @@ public static class ShellDragDrop
         {
             _ownDrag = null;
             Marshal.ReleaseComObject(data);
+            Views.DragHint.Hide(); // drag ended anywhere (dropped outside, Esc…)
         }
     }
 
@@ -74,13 +75,18 @@ public static class ShellDragDrop
     /// </summary>
     public static void Over(DragEventArgs e, UIElement element, string? folder)
     {
-        e.Effects = (DragDropEffects)OverCore(ComData(e.Data), ScreenPoint(e, element), (int)e.KeyStates,
+        var pt = ScreenPoint(e, element);
+        e.Effects = (DragDropEffects)OverCore(ComData(e.Data), pt, (int)e.KeyStates,
             (int)e.AllowedEffects, Hwnd(element), folder);
         e.Handled = true;
+        // "移動到 X" / "複製到 X" next to the cursor (decision: 拖曳中游標即時顯示).
+        if (folder != null) Views.DragHint.ShowDrop(new Point(pt.x, pt.y), e.Effects, folder, ((int)e.KeyStates & MK_RBUTTON) != 0);
+        else Views.DragHint.Hide();
     }
 
     public static void Leave()
     {
+        Views.DragHint.Hide();
         if (_helperEntered) { Helper()?.DragLeave(); _helperEntered = false; }
         ReleaseTarget(sendLeave: true);
         _targetFolder = null;
@@ -88,6 +94,7 @@ public static class ShellDragDrop
 
     public static void Drop(DragEventArgs e, UIElement element, string? folder)
     {
+        Views.DragHint.Hide();
         e.Effects = (DragDropEffects)DropCore(ComData(e.Data), ScreenPoint(e, element), (int)e.KeyStates,
             (int)e.AllowedEffects, (int)e.Effects, Hwnd(element), folder);
         e.Handled = true;

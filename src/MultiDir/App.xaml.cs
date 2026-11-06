@@ -26,6 +26,7 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) => Log(args.ExceptionObject as Exception);
 
         Views.FloatingTabDragFix.Register();
+        Views.FloatingChrome.Register();
         SingleInstance.Trace("startup: before MainWindow");
         var window = new MainWindow();
         SingleInstance.Trace("startup: MainWindow constructed");

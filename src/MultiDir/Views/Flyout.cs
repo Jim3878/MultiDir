@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
@@ -116,7 +116,7 @@ public static class Flyout
         var dock = new DockPanel();
         if (item.Children != null)
         {
-            var arrow = new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 9,
+            var arrow = new TextBlock { Text = "\uE76C", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 9,
                                         VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
             DockPanel.SetDock(arrow, Dock.Right);
             dock.Children.Add(arrow);

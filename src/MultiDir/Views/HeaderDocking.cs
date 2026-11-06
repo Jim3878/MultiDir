@@ -54,6 +54,15 @@ public sealed class HeaderDocking
         return bottom + (view?.ToolbarHeight ?? 32);
     }
 
+    /// <summary>Host hook: is this screen point (px) over the bookmark bar?</summary>
+    public Func<Point, bool>? IsOverBookmarkBar { get; set; }
+
+    /// <summary>Host hook: floating tab(s) released over the bookmark bar (bookmark them, then put them back).</summary>
+    public Action<List<LayoutDocument>, Point>? DroppedOnBookmarkBar { get; set; }
+
+    /// <summary>Host hook: feedback while dragged tab(s) hover the bookmark bar (null point = left it).</summary>
+    public Action<Point?, List<LayoutDocument>>? BookmarkBarHover { get; set; }
+
     // ---------- floating window move loop ----------
 
     private void Attach(Window window)
@@ -68,12 +77,33 @@ public sealed class HeaderDocking
                     break;
                 case WM_MOVING:
                 case WM_MOVE:
-                    if (_moving) ShowHighlight(ZoneAt(Cursor()));
+                    if (!_moving) break;
+                    var cursor = Cursor();
+                    if (IsOverBookmarkBar?.Invoke(cursor) == true)
+                    {
+                        // Tab over the bookmark bar = bookmark its folder (like dragging a tab to Chrome's bar).
+                        ShowHighlight(null);
+                        BookmarkBarHover?.Invoke(cursor, Docs(window));
+                    }
+                    else
+                    {
+                        BookmarkBarHover?.Invoke(null, []);
+                        ShowHighlight(ZoneAt(cursor));
+                    }
                     break;
                 case WM_EXITSIZEMOVE:
                     if (!_moving) break;
                     _moving = false;
-                    var zone = ZoneAt(Cursor());
+                    BookmarkBarHover?.Invoke(null, []);
+                    var at = Cursor();
+                    if (IsOverBookmarkBar?.Invoke(at) == true && DroppedOnBookmarkBar != null)
+                    {
+                        ShowHighlight(null);
+                        var floating = Docs(window);
+                        window.Dispatcher.BeginInvoke(() => DroppedOnBookmarkBar(floating, at));
+                        break;
+                    }
+                    var zone = ZoneAt(at);
                     ShowHighlight(null);
                     if (zone != null && window is LayoutFloatingWindowControl { Model: LayoutFloatingWindow model })
                     {
@@ -87,7 +117,11 @@ public sealed class HeaderDocking
         });
     }
 
-    private void DockInto(List<LayoutDocument> docs, LayoutDocumentPane pane)
+    private static List<LayoutDocument> Docs(Window window) =>
+        window is LayoutFloatingWindowControl { Model: LayoutFloatingWindow model } ? model.Descendents().OfType<LayoutDocument>().ToList() : new();
+
+    /// <summary>Moves floating documents into <paramref name="pane"/> (closing their now-empty floating window).</summary>
+    public void DockInto(List<LayoutDocument> docs, LayoutDocumentPane pane)
     {
         if (pane.Root != _dock.Layout) return;
         LayoutDocument? last = null;

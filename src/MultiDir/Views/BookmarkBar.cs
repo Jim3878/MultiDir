@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -42,7 +42,7 @@ public sealed class BookmarkBar : DockPanel
 
         _overflow = new Button
         {
-            Content = "", // »
+            Content = "\uE76C\uE76C", // »
             ToolTip = "其他書籤",
             Style = (Style)Application.Current.FindResource("ToolButton"),
             FontSize = 9, Visibility = Visibility.Collapsed,
@@ -75,6 +75,7 @@ public sealed class BookmarkBar : DockPanel
             _overflow.Visibility = _panel.HiddenChildren.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         BookmarkStore.Changed += Rebuild;
+        BookmarkStore.Added += b => Dispatcher.BeginInvoke(() => Flash(b), System.Windows.Threading.DispatcherPriority.Loaded);
         Rebuild();
 
         _hoverTimer.Tick += HoverTimer_Tick;
@@ -125,7 +126,7 @@ public sealed class BookmarkBar : DockPanel
     }
 
     private static FrameworkElement IconFor(Bookmark b) => b.IsFolder
-        ? new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 14,
+        ? new TextBlock { Text = "\uE8B7", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 14,
                           Foreground = FolderBrush, Width = 16, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
         : new Image { Source = b.Icon, Width = 16, Height = 16 };
 
@@ -327,6 +328,7 @@ public sealed class BookmarkBar : DockPanel
 
     private void EndDrag()
     {
+        DragHint.Hide();
         HideInsertMark();
         SetDropHot(null);
         _hoverTimer.Stop();
@@ -348,10 +350,22 @@ public sealed class BookmarkBar : DockPanel
         p.Moving != null ? into == null || (into != p.Moving && !p.Moving.Contains(into)) : p.Folders.Count > 0;
 
     /// <summary>The middle half of a folder button means "into the folder"; its edges mean "next to it".</summary>
-    private bool IsIntoFolder(Button button, DragEventArgs e)
+    private bool IsIntoFolder(Button button, DragEventArgs e) => button.Tag is Bookmark { IsFolder: true } && IsMiddle(button, e);
+
+    /// <summary>The middle half of a button = "onto it"; its outer quarters = "next to it" (insert a bookmark there).</summary>
+    private static bool IsMiddle(Button button, DragEventArgs e)
     {
         var x = e.GetPosition(button).X;
-        return button.Tag is Bookmark { IsFolder: true } && x > button.ActualWidth * 0.25 && x < button.ActualWidth * 0.75;
+        return x > button.ActualWidth * 0.25 && x < button.ActualWidth * 0.75;
+    }
+
+    /// <summary>Files or folders dropped onto the middle of a bookmark go INTO that folder (move/copy like anywhere else).</summary>
+    private static bool IsOntoBookmark(Button? button, DragEventArgs e, (Bookmark? Moving, List<string> Folders) payload, out Bookmark target)
+    {
+        target = null!;
+        if (payload.Moving != null || button is not { Tag: Bookmark { IsFolder: false, Exists: true } b } || !IsMiddle(button, e)) return false;
+        target = b;
+        return true;
     }
 
     private void Bar_DragOver(object sender, DragEventArgs e)
@@ -368,16 +382,17 @@ public sealed class BookmarkBar : DockPanel
             e.Effects = CanTake(payload, folder) ? (payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link) : DragDropEffects.None;
             Hover(target, () => OpenDropPopup(target, folder));
             ShellDragDrop.Leave();
+            if (CanTake(payload, folder))
+                Hint(e, "\uE8B7", payload.Moving != null ? $"移到書籤資料夾「{folder.Name}」" : $"加入書籤資料夾「{folder.Name}」", "停 0.5 秒可展開，放進子資料夾");
             return;
         }
         Hover(null, null);
 
-        if (payload.Moving == null && payload.Folders.Count == 0 && target is { Tag: Bookmark { IsFolder: false } b } && b.Exists)
+        if (IsOntoBookmark(target, e, payload, out var b))
         {
-            // Files onto a bookmark = into that folder (move/copy like every other drop target).
             HideInsertMark();
             SetDropHot(target);
-            ShellDragDrop.Over(e, this, b.Path);
+            ShellDragDrop.Over(e, this, b.Path); // also shows "移動到「X」" / "複製到「X」"
             return;
         }
         SetDropHot(null);
@@ -386,6 +401,7 @@ public sealed class BookmarkBar : DockPanel
         {
             ShowInsertMark(InsertIndex(e));
             e.Effects = payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link;
+            Hint(e, payload.Moving != null ? "\uE8CB" : "\uE734", payload.Moving != null ? "移動書籤" : "加入書籤列");
         }
         else
         {
@@ -415,10 +431,13 @@ public sealed class BookmarkBar : DockPanel
         EndDrag();
 
         if (into && target!.Tag is Bookmark folder) { DropInto(payload, folder); return; }
+        if (IsOntoBookmark(target, e, payload, out var b)) { ShellDragDrop.Drop(e, this, b.Path); return; }
         if (payload.Moving != null) { BookmarkStore.Move(payload.Moving, index); return; }
         if (payload.Folders.Count > 0) { foreach (var f in payload.Folders) BookmarkStore.Add(f, index++); return; }
-        if (target is { Tag: Bookmark { IsFolder: false } b } && b.Exists) ShellDragDrop.Drop(e, this, b.Path);
     }
+
+    private void Hint(DragEventArgs e, string glyph, string title, string? detail = null) =>
+        DragHint.Show(PointToScreen(e.GetPosition(this)), glyph, title, detail);
 
     private static void DropInto((Bookmark? Moving, List<string> Folders) payload, Bookmark folder)
     {
@@ -434,10 +453,52 @@ public sealed class BookmarkBar : DockPanel
         return null;
     }
 
-    /// <summary>Insert position from the cursor: before the first visible button whose middle is right of it.</summary>
-    private int InsertIndex(DragEventArgs e)
+    /// <summary>Is a screen point (px) over the bar? (used while dragging a tab, which is not an OLE drag)</summary>
+    public bool ContainsScreenPoint(Point screenPx)
     {
-        var x = e.GetPosition(_panel).X;
+        if (!IsVisible) return false;
+        var p = PointFromScreen(screenPx);
+        return p.X >= 0 && p.Y >= -4 && p.X < ActualWidth && p.Y < ActualHeight + 4;
+    }
+
+    /// <summary>A dragged tab hovers the bar (null = it left): insert line where it would go + hint beside the cursor.</summary>
+    public void ShowTabHover(Point? screenPx, IReadOnlyList<string> paths)
+    {
+        if (screenPx is not { } pt) { HideInsertMark(); DragHint.Hide(); return; }
+        if (paths.Count == 0) { HideInsertMark(); DragHint.Show(pt, "", "「本機」不能加入書籤", leftOfCursor: true); return; }
+        ShowInsertMark(InsertIndexAt(_panel.PointFromScreen(pt).X));
+        // Left of the cursor: the tab's floating window hangs below-right of it and would hide the hint.
+        DragHint.Show(pt, "", paths.Count == 1 ? "放開即加入書籤" : $"放開即加入 {paths.Count} 個書籤", string.Join("、", paths), leftOfCursor: true);
+    }
+
+    /// <summary>Feedback after adding: the new bookmark's button (or » if it didn't fit) lights up briefly.</summary>
+    private void Flash(Bookmark b)
+    {
+        var button = _panel.Children.OfType<Button>().FirstOrDefault(x => x.Tag == b);
+        FrameworkElement target = button != null && !_panel.HiddenChildren.Contains(button) ? button
+            : BookmarkStore.ParentFolder(b) is { } folder && _panel.Children.OfType<Button>().FirstOrDefault(x => x.Tag == folder) is { } fb ? fb
+            : _overflow;
+        if (target is not Control control) return;
+        var brush = ((SolidColorBrush)Application.Current.FindResource("Accent")).Clone();
+        control.Background = brush;
+        var fade = new System.Windows.Media.Animation.DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(1400))
+        { BeginTime = TimeSpan.FromMilliseconds(300) };
+        fade.Completed += (_, _) => control.ClearValue(BackgroundProperty);
+        brush.BeginAnimation(Brush.OpacityProperty, fade);
+    }
+
+    /// <summary>Adds folders as bookmarks at the bar position under a screen point (px).</summary>
+    public void AddAt(Point screenPx, IEnumerable<string> folders)
+    {
+        int index = InsertIndexAt(_panel.PointFromScreen(screenPx).X);
+        foreach (var f in folders) BookmarkStore.Add(f, index++);
+    }
+
+    /// <summary>Insert position from the cursor: before the first visible button whose middle is right of it.</summary>
+    private int InsertIndex(DragEventArgs e) => InsertIndexAt(e.GetPosition(_panel).X);
+
+    private int InsertIndexAt(double x)
+    {
         var visible = VisibleButtons();
         for (int i = 0; i < visible.Count; i++)
         {
@@ -538,7 +599,7 @@ public sealed class BookmarkBar : DockPanel
     {
         var row = new DockPanel();
         if (!header)
-            row.Children.Add(new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 9,
+            row.Children.Add(new TextBlock { Text = "\uE76C", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 9,
                                              VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
         if (!header) SetDock(row.Children[0], Dock.Right);
         row.Children.Add(IconFor(folder));
@@ -565,6 +626,9 @@ public sealed class BookmarkBar : DockPanel
         var payload = Payload(e);
         bool ok = target != null && CanTake(payload, target);
         e.Effects = ok ? (payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link) : DragDropEffects.None;
+        if (ok && sender is FrameworkElement popupContent)
+            DragHint.Show(popupContent.PointToScreen(e.GetPosition(popupContent)), "\uE8B7", $"放進「{target!.Name}」");
+        else DragHint.Hide();
 
         if (_rowHot != row)
         {

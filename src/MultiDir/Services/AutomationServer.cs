@@ -95,6 +95,7 @@ public sealed class AutomationServer
             "plus" => Plus(),
             "save" => Save(),
             "menu" => Menu(args),
+            "tree" => VisualTree(args),
             "bookmark" => BookmarkCommand(args),
             "sidebar" => SidebarCommand(args),
             _ => "ERROR unknown command; try: help",
@@ -380,6 +381,10 @@ public sealed class AutomationServer
                 break;
             case "nav": Tab(int.Parse(a[1])).Navigate(string.Join(" ", a.Skip(2))); break;
             case "mode": Tab(int.Parse(a[1])).ViewMode = Enum.Parse<ViewMode>(a[2], ignoreCase: true); break;
+            case "tobar": // what releasing a dragged (floating) tab over the bookmark bar does
+                var bar = _window.Bookmarks;
+                _window.TabsDroppedOnBookmarkBar([Doc(int.Parse(a[1]))], bar.PointToScreen(new Point(bar.ActualWidth - 4, bar.ActualHeight / 2)));
+                break;
             case "selected":
                 return "selected: " + string.Join(", ", (Doc(int.Parse(a[1])).Content as FolderView)?.SelectedNames ?? []);
             case "open": _window.OpenExternal(a.Skip(1).ToList(), activate: false); break;
@@ -500,6 +505,23 @@ public sealed class AutomationServer
         var until = DateTime.Now.AddMilliseconds(600); // let the tree finish loading/expanding
         while (DateTime.Now < until) { Pump(); Thread.Sleep(20); }
         return $"visible={side.IsVisible} " + side.Describe();
+    }
+
+    /// <summary>Debug: visual tree of a window (tree <win> [depth]), names/types/sizes.</summary>
+    private string VisualTree(List<string> a)
+    {
+        var w = Win(a, 0);
+        int max = a.Count > 1 ? int.Parse(a[1]) : 8;
+        var sb = new StringBuilder();
+        void Walk(DependencyObject d, int depth)
+        {
+            if (depth > max) return;
+            var fe = d as FrameworkElement;
+            sb.AppendLine($"{new string(' ', depth * 2)}{d.GetType().Name}{(fe?.Name is { Length: > 0 } n ? " #" + n : "")} {(fe != null ? $"{fe.ActualWidth:0}x{fe.ActualHeight:0} {fe.Visibility}" : "")}");
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) Walk(VisualTreeHelper.GetChild(d, i), depth + 1);
+        }
+        Walk(w, 0);
+        return sb.ToString().TrimEnd();
     }
 
     private string Save() { _window.SaveSession(); return $"OK saved to {AppPaths.DataDir}"; }
