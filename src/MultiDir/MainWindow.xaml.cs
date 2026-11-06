@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         SingleInstance.Trace("startup: layout");
         UpdateDefaultHandlerButton();
         FileOperationQueue.Changed += UpdateQueueButton;
+        CheckForUpdateLater();
 
         // Session is saved on close, plus every 30 s so a crash or power loss loses little.
         Closing += (_, e) =>
@@ -156,6 +157,46 @@ public partial class MainWindow : Window
     }
 
     private static readonly string NL = Environment.NewLine;
+
+    // ---------- updates ----------
+
+    private UpdateInfo? _update;
+
+    /// <summary>A few seconds after start (never delaying it), asks GitHub whether a newer release exists.</summary>
+    private async void CheckForUpdateLater()
+    {
+        if (!Updater.Enabled) return;
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        _update = await Updater.CheckAsync();
+        if (_update == null) return;
+        UpdateBtn.Content = $"⬆ 新版本 v{_update.Version.ToString(3)}";
+        UpdateBtn.ToolTip = $"目前 {Updater.CurrentText}，按一下更新到 v{_update.Version.ToString(3)}（會重新啟動 MultiDir）";
+        UpdateBtn.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdateBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_update is not { } update) return;
+        if (FileOperationQueue.Snapshot().Count > 0)
+        {
+            MessageBox.Show(this, "還有複製 / 移動工作在進行或排隊中，等它們完成後再更新。", "更新 MultiDir", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (MessageBox.Show(this, $"要更新到 v{update.Version.ToString(3)} 嗎？\n\nMultiDir 會關閉、換成新版後自動重新開啟，分頁會保留。\n\n更新內容：{update.PageUrl}",
+                "更新 MultiDir", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        UpdateBtn.IsEnabled = false;
+        try
+        {
+            await Updater.PrepareAsync(update, new Progress<string>(s => UpdateBtn.Content = "⬆ " + s));
+            ExitApp(); // saves the session; the update script waits for us to exit, copies, and starts the new version
+        }
+        catch (Exception ex)
+        {
+            UpdateBtn.IsEnabled = true;
+            UpdateBtn.Content = $"⬆ 新版本 v{update.Version.ToString(3)}";
+            MessageBox.Show(this, "更新失敗：" + ex.Message, "更新 MultiDir", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
 
     // ---------- copy / move queue ----------
 

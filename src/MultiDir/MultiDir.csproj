@@ -12,6 +12,8 @@
     <StartupObject>MultiDir.Program</StartupObject>
     <!-- App icon (drawn by tools/make-icon.ps1): exe / taskbar / Alt+Tab; also embedded for the window and tray. -->
     <ApplicationIcon>Assets\MultiDir.ico</ApplicationIcon>
+    <!-- 0.0.0 = development build (never auto-updates). The release workflow sets the real version from the tag. -->
+    <Version>0.0.0</Version>
     <!-- Test builds (tools/mdctl.ps1) use a separate artifacts path; never pick up the normal build's generated files. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
   </PropertyGroup>

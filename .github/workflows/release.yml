@@ -1,0 +1,35 @@
+# Push a tag like v0.2.0 -> builds MultiDir and publishes a GitHub release with MultiDir-win-x64.zip,
+# which running copies of MultiDir offer to update to (see src/MultiDir/Services/Updater.cs).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          dotnet publish src/MultiDir/MultiDir.csproj -c Release -r win-x64 --self-contained false `
+            -p:Version=$version -p:PublishReadyToRun=true -o publish
+          Compress-Archive -Path publish/* -DestinationPath MultiDir-win-x64.zip
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create '${{ github.ref_name }}' MultiDir-win-x64.zip --title 'MultiDir ${{ github.ref_name }}' --generate-notes

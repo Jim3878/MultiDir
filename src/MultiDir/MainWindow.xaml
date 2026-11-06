@@ -22,6 +22,10 @@
             <DockPanel LastChildFill="True">
                 <Button x:Name="DefaultHandlerBtn" DockPanel.Dock="Right" Click="DefaultHandler_Click"
                         Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"/>
+                <!-- A newer release on GitHub (release builds only). -->
+                <Button x:Name="UpdateBtn" DockPanel.Dock="Right" Click="UpdateBtn_Click" Visibility="Collapsed"
+                        Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"
+                        Foreground="{StaticResource Accent}"/>
                 <!-- Copy / move queue: shown only while something is copying or waiting. -->
                 <Button x:Name="QueueBtn" DockPanel.Dock="Right" Click="QueueBtn_Click" Visibility="Collapsed"
                         Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"/>
