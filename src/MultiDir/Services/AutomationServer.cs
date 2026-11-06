@@ -115,6 +115,7 @@ public sealed class AutomationServer
         menu                                   list the context menu the last right-click built (never shown on screen)
         menu pick <verb or text>               run an item of that menu (avoid ones that open dialogs or touch the clipboard)
         bookmark list | add <path> | open <index> [new] | remove <index> | move <index> <newIndex>
+        bookmark folder <name> | into <index> <folderIndex>   (indexes = top level of the bar)
         save                                   save the session now (as on close); restart with: mdctl start keep
         zone <x> <y>                           which pane header (re-dock drop zone) is at main-window pixel x,y
         wait <ms>
@@ -458,7 +459,9 @@ public sealed class AutomationServer
             case "open": _window.Bookmarks.OpenAt(int.Parse(a[1]), a.Count > 2 && a[2] == "new"); break;
             case "remove": BookmarkStore.Remove(BookmarkStore.Items[int.Parse(a[1])]); break;
             case "move": BookmarkStore.Move(BookmarkStore.Items[int.Parse(a[1])], int.Parse(a[2])); break;
-            default: return "ERROR bookmark list|add|open|remove|move";
+            case "folder": BookmarkStore.AddFolder(string.Join(" ", a.Skip(1))); break;
+            case "into": BookmarkStore.Move(BookmarkStore.Items[int.Parse(a[1])], -1, BookmarkStore.Items[int.Parse(a[2])]); break;
+            default: return "ERROR bookmark list|add|open|remove|move|folder|into";
         }
         Pump();
         _window.UpdateLayout();

@@ -20,9 +20,9 @@ public partial class FolderView : UserControl
         DataContextChanged += (_, e) => Attach(e.NewValue as FolderTab);
         // Keep ☆ in sync when bookmarks change anywhere (bar right-click → 移除, another pane's star…).
         // Subscribed only while loaded, so closed tabs aren't kept alive by the static store.
-        System.Collections.Specialized.NotifyCollectionChangedEventHandler onBookmarks = (_, _) => UpdateStar();
-        Loaded += (_, _) => { BookmarkStore.Items.CollectionChanged += onBookmarks; UpdateStar(); };
-        Unloaded += (_, _) => BookmarkStore.Items.CollectionChanged -= onBookmarks;
+        Action onBookmarks = UpdateStar;
+        Loaded += (_, _) => { BookmarkStore.Changed += onBookmarks; UpdateStar(); };
+        Unloaded += (_, _) => BookmarkStore.Changed -= onBookmarks;
     }
 
     private void Star_Click(object sender, RoutedEventArgs e)

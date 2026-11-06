@@ -223,14 +223,17 @@ public sealed class FolderTab : INotifyPropertyChanged
         foreach (var info in new DirectoryInfo(path).EnumerateFileSystemInfos("*", EnumOptions))
         {
             token.ThrowIfCancellationRequested();
+            if ((info.Attributes & ProtectedOs) == ProtectedOs) continue;
             result.Add(FromInfo(info));
         }
         result.Sort(Compare);
         return result;
     }
 
-    private const FileAttributes Skipped = FileAttributes.System | FileAttributes.Hidden;
-    private static readonly EnumerationOptions EnumOptions = new() { IgnoreInaccessible = true, AttributesToSkip = Skipped };
+    // Show hidden items (.git, .vs, ...) and System-only folders (e.g. a Nextcloud sync root),
+    // but keep Explorer's "protected OS files" (Hidden AND System: $RECYCLE.BIN, desktop.ini) out.
+    private const FileAttributes ProtectedOs = FileAttributes.System | FileAttributes.Hidden;
+    private static readonly EnumerationOptions EnumOptions = new() { IgnoreInaccessible = true, AttributesToSkip = 0 };
 
     private static FileItem FromInfo(FileSystemInfo info)
     {
@@ -327,7 +330,7 @@ public sealed class FolderTab : INotifyPropertyChanged
             if (index >= 0) Items.RemoveAt(index);
 
             FileSystemInfo info = Directory.Exists(full_path) ? new DirectoryInfo(full_path) : new FileInfo(full_path);
-            if (!info.Exists || (info.Attributes & Skipped) != 0) continue;
+            if (!info.Exists || (info.Attributes & ProtectedOs) == ProtectedOs) continue;
             var item = FromInfo(info);
             Items.Insert(InsertionIndex(item), item);
         }

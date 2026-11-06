@@ -1,22 +1,25 @@
-using System.Collections.Specialized;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using MultiDir.Services;
 
 namespace MultiDir.Views;
 
 /// <summary>
-/// Chrome-style bookmark bar.
-/// Click = open in the active tab, Ctrl+click / middle-click = new tab, right-click = 開啟 / 新分頁 / 重新命名 / 移除.
-/// Drag a folder onto empty bar space to add it; drag files onto a bookmark to move them there (like any folder);
-/// drag a bookmark along the bar to reorder. Bookmarks that don't fit go into the » menu.
+/// Chrome-style bookmark bar with bookmark folders.
+/// Bookmark: click = open in the active tab, Ctrl/middle-click = new tab, right-click = 開啟 / 新分頁 / 重新命名 / 移除.
+/// Folder: click = drop-down (nested submenus), middle-click = open all in new tabs, right-click = 全部開啟 / 重新命名 / 刪除.
+/// Dragging: a folder onto empty bar space adds it; files onto a bookmark move them there; bookmarks reorder along the bar;
+/// anything dropped onto the middle of a folder goes into it, and hovering 0.5 s opens it to drop into a subfolder.
 /// </summary>
 public sealed class BookmarkBar : DockPanel
 {
     private const string ReorderFormat = "MultiDir.Bookmark";
+    private static readonly Brush FolderBrush = new SolidColorBrush(Color.FromRgb(0xE8, 0xB3, 0x39));
 
     private readonly OverflowPanel _panel = new() { ClipToBounds = true };
     private readonly Button _overflow;
@@ -33,7 +36,7 @@ public sealed class BookmarkBar : DockPanel
 
     public BookmarkBar()
     {
-        Background = Brushes.Transparent; // hit-testable, so the empty area accepts drops
+        Background = Brushes.Transparent; // hit-testable, so the empty area accepts drops and right-clicks
         AllowDrop = true;
         LastChildFill = true;
 
@@ -50,7 +53,7 @@ public sealed class BookmarkBar : DockPanel
 
         _empty = new TextBlock
         {
-            Text = "把資料夾拖到這裡，或按功能列的 ☆ 加入書籤",
+            Text = "把資料夾拖到這裡，或按功能列的 ☆ 加入書籤；右鍵可新增書籤資料夾",
             Foreground = (Brush)Application.Current.FindResource("TextDim"),
             FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
             IsHitTestVisible = false,
@@ -64,11 +67,18 @@ public sealed class BookmarkBar : DockPanel
         host.Children.Add(_overlay);
         Children.Add(host);
 
+        // Right-click on empty bar space.
+        ContextMenu = DarkMenu();
+        ContextMenu.Items.Add(Item("新增資料夾…", () => NewFolder(null)));
+
         _panel.OverflowChanged += () =>
             _overflow.Visibility = _panel.HiddenChildren.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        BookmarkStore.Items.CollectionChanged += (_, _) => Rebuild();
+        BookmarkStore.Changed += Rebuild;
         Rebuild();
+
+        _hoverTimer.Tick += HoverTimer_Tick;
+        _closeTimer.Tick += (_, _) => { _closeTimer.Stop(); CloseDropPopup(); };
 
         DragEnter += Bar_DragOver;
         DragOver += Bar_DragOver;
@@ -76,7 +86,7 @@ public sealed class BookmarkBar : DockPanel
         Drop += Bar_Drop;
     }
 
-    // ---------- buttons ----------
+    // ---------- bar buttons ----------
 
     private void Rebuild()
     {
@@ -88,62 +98,135 @@ public sealed class BookmarkBar : DockPanel
     private Button CreateButton(Bookmark b)
     {
         var text = new TextBlock { Text = b.Name, MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 0) };
-        if (!b.Exists) { text.Opacity = 0.5; text.FontStyle = FontStyles.Italic; }
+        if (!b.IsFolder && !b.Exists) { text.Opacity = 0.5; text.FontStyle = FontStyles.Italic; }
         var content = new StackPanel { Orientation = Orientation.Horizontal };
-        content.Children.Add(new Image { Source = b.Icon, Width = 16, Height = 16 });
+        content.Children.Add(IconFor(b));
         content.Children.Add(text);
 
         var button = new Button
         {
             Content = content, Tag = b, Height = 24, Margin = new Thickness(1, 0, 1, 0), Padding = new Thickness(6, 0, 6, 0),
             Style = (Style)Application.Current.FindResource("CrumbButton"),
-            ToolTip = b.Exists ? b.Path : b.Path + "（找不到這個資料夾）",
-            ContextMenu = BuildMenu(b),
+            ToolTip = b.IsFolder ? $"{b.Name}（{b.AllBookmarks().Count()} 個書籤）" : b.Exists ? b.Path : b.Path + "（找不到這個資料夾）",
+            ContextMenu = BarMenu(b),
         };
-        button.Click += (_, _) => Open(b, newTab: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+        button.Click += (_, _) =>
+        {
+            if (b.IsFolder) ShowFolderDropDown(button, b);
+            else Open(b, newTab: (Keyboard.Modifiers & ModifierKeys.Control) != 0);
+        };
         button.PreviewMouseDown += (_, e) =>
         {
-            if (e.ChangedButton == MouseButton.Middle) { Open(b, newTab: true); e.Handled = true; }
+            if (e.ChangedButton == MouseButton.Middle) { OpenMiddle(b); e.Handled = true; }
             if (e.ChangedButton == MouseButton.Left) { _downAt = e.GetPosition(this); _downOn = b; }
         };
         button.PreviewMouseMove += (_, e) => StartReorderDrag(button, e);
         return button;
     }
 
-    private ContextMenu BuildMenu(Bookmark b)
+    private static FrameworkElement IconFor(Bookmark b) => b.IsFolder
+        ? new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 14,
+                          Foreground = FolderBrush, Width = 16, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        : new Image { Source = b.Icon, Width = 16, Height = 16 };
+
+    // ---------- menus ----------
+    // One action list per entry feeds both the bar's right-click ContextMenu and the drop-down's right-click flyout.
+
+    private sealed record MenuAction(string Header, Action Run, bool Enabled = true);
+
+    private List<MenuAction?> BookmarkActions(Bookmark b)
     {
-        var menu = new ContextMenu { Style = (Style)Application.Current.FindResource("DarkMenu") };
-        menu.Items.Add(MenuItem("開啟", () => Open(b, false)));
-        menu.Items.Add(MenuItem("在新分頁開啟", () => Open(b, true)));
-        menu.Items.Add(MenuItem("重新命名…", () =>
+        var list = new List<MenuAction?>
         {
-            if (!App.IsAutomation && Window.GetWindow(this) is { } owner && RenameDialog.Prompt(owner, "重新命名書籤", b.Name) is { } name)
-                BookmarkStore.Rename(b, name);
-        }));
-        menu.Items.Add(MenuItem("移除", () => BookmarkStore.Remove(b)));
-        return menu;
+            new("開啟", () => Open(b, false)),
+            new("在新分頁開啟", () => Open(b, true)),
+            null,
+            new("重新命名…", () => RenameEntry(b)),
+        };
+        if (BookmarkStore.ParentFolder(b) != null) list.Add(new("移到書籤列", () => BookmarkStore.Move(b, -1)));
+        list.Add(new("移除", () => BookmarkStore.Remove(b)));
+        return list;
     }
 
-    private static MenuItem MenuItem(string header, Action action, ImageSource? icon = null)
+    private List<MenuAction?> FolderActions(Bookmark folder)
+    {
+        int n = folder.AllBookmarks().Count(x => x.Exists);
+        var list = new List<MenuAction?>
+        {
+            new($"全部在新分頁開啟（{n}）", () => OpenAll(folder), n > 0),
+            null,
+            new("新增資料夾…", () => NewFolder(folder)),
+            new("重新命名…", () => RenameEntry(folder)),
+        };
+        if (BookmarkStore.ParentFolder(folder) != null) list.Add(new("移到書籤列", () => BookmarkStore.Move(folder, -1)));
+        list.Add(new("刪除", () => DeleteFolder(folder)));
+        return list;
+    }
+
+    private static ContextMenu DarkMenu() => new() { Style = (Style)Application.Current.FindResource("DarkMenu") };
+
+    private static MenuItem Item(string header, Action action)
     {
         var item = new MenuItem { Header = header, Style = (Style)Application.Current.FindResource("DarkMenuItem") };
-        if (icon != null) item.Icon = new Image { Source = icon, Width = 16, Height = 16 };
-        item.Click += (_, _) => action();
+        item.Click += (_, e) => { action(); e.Handled = true; };
         return item;
     }
 
-    private void ShowOverflowMenu()
+    /// <summary>Right-click menu of a button on the bar (built when it opens, so it reflects the current tree).</summary>
+    private ContextMenu BarMenu(Bookmark b)
     {
-        var menu = new ContextMenu { Style = (Style)Application.Current.FindResource("DarkMenu"), PlacementTarget = _overflow };
-        foreach (var child in _panel.HiddenChildren)
-            if (child is Button { Tag: Bookmark b })
-                menu.Items.Add(MenuItem(b.Name, () => Open(b, (Keyboard.Modifiers & ModifierKeys.Control) != 0), b.Icon));
-        menu.IsOpen = true;
+        var menu = DarkMenu();
+        menu.Opened += (_, _) =>
+        {
+            menu.Items.Clear();
+            foreach (var a in b.IsFolder ? FolderActions(b) : BookmarkActions(b))
+            {
+                if (a == null) { menu.Items.Add(new Separator { Style = (Style)Application.Current.FindResource("DarkMenuSeparator") }); continue; }
+                var item = Item(a.Header, a.Run);
+                item.IsEnabled = a.Enabled;
+                menu.Items.Add(item);
+            }
+        };
+        menu.Items.Add(new MenuItem()); // placeholder so the menu opens; replaced in Opened
+        return menu;
     }
 
-    /// <summary>Opens a bookmark. Automation uses this through <see cref="OpenAt"/>.</summary>
+    private static List<FlyoutItem?> ToFlyout(List<MenuAction?> actions) =>
+        actions.Select(a => a == null ? null : new FlyoutItem { Header = a.Header, Click = a.Run, Enabled = a.Enabled }).ToList();
+
+    /// <summary>Drop-down rows for a folder's contents: bookmarks, and nested folders as submenus.</summary>
+    private List<FlyoutItem?> Entries(IEnumerable<Bookmark> list)
+    {
+        var rows = list.Select(c => (FlyoutItem?)(c.IsFolder
+            ? new FlyoutItem
+            {
+                Header = c.Name, Icon = IconFor(c),
+                Children = () => Entries(c.Children!),
+                MiddleClick = () => OpenAll(c),
+                ContextItems = () => ToFlyout(FolderActions(c)),
+            }
+            : new FlyoutItem
+            {
+                Header = c.Name, Icon = IconFor(c), ToolTip = c.Exists ? c.Path : c.Path + "（找不到這個資料夾）", Dim = !c.Exists,
+                Click = () => Open(c, (Keyboard.Modifiers & ModifierKeys.Control) != 0),
+                MiddleClick = () => Open(c, true),
+                ContextItems = () => ToFlyout(BookmarkActions(c)),
+            })).ToList();
+        if (rows.Count == 0) rows.Add(new FlyoutItem { Header = "（空的）", Enabled = false });
+        return rows;
+    }
+
+    private void ShowFolderDropDown(FrameworkElement anchor, Bookmark folder) =>
+        Flyout.ShowBelow(anchor, Entries(folder.Children!));
+
+    private void ShowOverflowMenu() =>
+        Flyout.ShowBelow(_overflow, Entries(_panel.HiddenChildren.OfType<Button>().Select(b => (Bookmark)b.Tag)));
+
+    // ---------- actions ----------
+
     private void Open(Bookmark b, bool newTab)
     {
+        if (b.IsFolder) return;
         if (!b.Exists)
         {
             if (App.IsAutomation || Window.GetWindow(this) is not { } owner) return;
@@ -154,13 +237,66 @@ public sealed class BookmarkBar : DockPanel
         OpenRequested?.Invoke(b.Path, newTab);
     }
 
-    /// <summary>Automation: open the bookmark at <paramref name="index"/>.</summary>
-    public void OpenAt(int index, bool newTab) => Open(BookmarkStore.Items[index], newTab);
+    private void OpenMiddle(Bookmark b)
+    {
+        if (b.IsFolder) OpenAll(b); else Open(b, newTab: true);
+    }
 
-    /// <summary>Automation: which bookmarks are visible on the bar and which went into ».</summary>
-    public string Describe() =>
-        string.Join("\n", _panel.Children.OfType<Button>().Select((btn, i) =>
-            $"  {i}: {((Bookmark)btn.Tag).Name} | {((Bookmark)btn.Tag).Path}{(_panel.HiddenChildren.Contains(btn) ? "  (in »)" : "")}"));
+    private void OpenAll(Bookmark folder)
+    {
+        foreach (var b in folder.AllBookmarks().Where(x => x.Exists)) OpenRequested?.Invoke(b.Path, true);
+    }
+
+    private void NewFolder(Bookmark? parent)
+    {
+        if (App.IsAutomation || Window.GetWindow(this) is not { } owner) return;
+        if (RenameDialog.Prompt(owner, "新增書籤資料夾", "新資料夾") is { } name) BookmarkStore.AddFolder(name, -1, parent);
+    }
+
+    private void RenameEntry(Bookmark b)
+    {
+        if (App.IsAutomation || Window.GetWindow(this) is not { } owner) return;
+        if (RenameDialog.Prompt(owner, b.IsFolder ? "重新命名書籤資料夾" : "重新命名書籤", b.Name) is { } name) BookmarkStore.Rename(b, name);
+    }
+
+    private void DeleteFolder(Bookmark folder)
+    {
+        int n = folder.AllBookmarks().Count();
+        if (n > 0)
+        {
+            if (App.IsAutomation || Window.GetWindow(this) is not { } owner) return;
+            if (MessageBox.Show(owner, $"要刪除書籤資料夾「{folder.Name}」和裡面的 {n} 個書籤嗎？\n（只刪除書籤，不會動到真正的資料夾）",
+                    "刪除書籤資料夾", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        }
+        BookmarkStore.Remove(folder);
+    }
+
+    // ---------- automation ----------
+
+    /// <summary>Automation: open the top-level bookmark at <paramref name="index"/> (a folder opens all of it in new tabs).</summary>
+    public void OpenAt(int index, bool newTab)
+    {
+        var b = BookmarkStore.Items[index];
+        if (b.IsFolder) OpenAll(b); else Open(b, newTab);
+    }
+
+    /// <summary>Automation: the bar as a tree; entries that went into » are marked.</summary>
+    public string Describe()
+    {
+        var lines = new List<string>();
+        void Walk(IEnumerable<Bookmark> list, int depth)
+        {
+            foreach (var b in list)
+            {
+                var hidden = depth == 0 && _panel.HiddenChildren.OfType<Button>().Any(x => x.Tag == b) ? "  (in »)" : "";
+                lines.Add($"{new string(' ', 2 + depth * 2)}{(depth == 0 ? BookmarkStore.Items.IndexOf(b) + ": " : "- ")}" +
+                          (b.IsFolder ? $"[{b.Name}]" : $"{b.Name} | {b.Path}") + hidden);
+                if (b.IsFolder) Walk(b.Children!, depth + 1);
+            }
+        }
+        Walk(BookmarkStore.Items, 0);
+        return string.Join(Environment.NewLine, lines);
+    }
 
     // ---------- drag: reorder ----------
 
@@ -173,41 +309,76 @@ public sealed class BookmarkBar : DockPanel
         _downOn = null;
         // Internal format only: dragging a bookmark must never move the real folder.
         DragDrop.DoDragDrop(button, new DataObject(ReorderFormat, b), DragDropEffects.Move);
-        HideInsertMark();
+        EndDrag();
     }
 
-    // ---------- drag: add folder / drop files onto a bookmark ----------
+    private void EndDrag()
+    {
+        HideInsertMark();
+        SetDropHot(null);
+        _hoverTimer.Stop();
+        _hoverTarget = null;
+        CloseDropPopup();
+    }
+
+    // ---------- drag over the bar ----------
+
+    /// <summary>What a drag carries that the bar can take: a bookmark being moved, or folders to bookmark.</summary>
+    private static (Bookmark? Moving, List<string> Folders) Payload(DragEventArgs e)
+    {
+        if (e.Data.GetData(ReorderFormat) is Bookmark moving) return (moving, new());
+        try { return (null, e.Data.GetData(DataFormats.FileDrop) is string[] paths ? paths.Where(Directory.Exists).ToList() : new()); }
+        catch { return (null, new()); }
+    }
+
+    private static bool CanTake((Bookmark? Moving, List<string> Folders) p, Bookmark? into) =>
+        p.Moving != null ? into == null || (into != p.Moving && !p.Moving.Contains(into)) : p.Folders.Count > 0;
+
+    /// <summary>The middle half of a folder button means "into the folder"; its edges mean "next to it".</summary>
+    private bool IsIntoFolder(Button button, DragEventArgs e)
+    {
+        var x = e.GetPosition(button).X;
+        return button.Tag is Bookmark { IsFolder: true } && x > button.ActualWidth * 0.25 && x < button.ActualWidth * 0.75;
+    }
 
     private void Bar_DragOver(object sender, DragEventArgs e)
     {
+        _closeTimer.Stop();
         var target = ButtonAt(e);
-        if (e.Data.GetDataPresent(ReorderFormat))
+        var payload = Payload(e);
+        e.Handled = true;
+
+        if (target is { Tag: Bookmark { IsFolder: true } folder } && IsIntoFolder(target, e))
         {
-            ShowInsertMark(InsertIndex(e));
-            e.Effects = DragDropEffects.Move;
+            HideInsertMark();
+            SetDropHot(CanTake(payload, folder) ? target : null);
+            e.Effects = CanTake(payload, folder) ? (payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link) : DragDropEffects.None;
+            Hover(target, () => OpenDropPopup(target, folder));
+            ShellDragDrop.Leave();
+            return;
         }
-        else if (target is { Tag: Bookmark b } && b.Exists)
+        Hover(null, null);
+
+        if (payload.Moving == null && payload.Folders.Count == 0 && target is { Tag: Bookmark { IsFolder: false } b } && b.Exists)
         {
-            // Onto a bookmark = into that folder (move/copy like every other drop target).
+            // Files onto a bookmark = into that folder (move/copy like every other drop target).
             HideInsertMark();
             SetDropHot(target);
             ShellDragDrop.Over(e, this, b.Path);
-            e.Handled = true;
             return;
         }
-        else if (DroppedFolders(e).Count > 0)
+        SetDropHot(null);
+        ShellDragDrop.Leave();
+        if (CanTake(payload, null))
         {
             ShowInsertMark(InsertIndex(e));
-            e.Effects = DragDropEffects.Link;
+            e.Effects = payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link;
         }
         else
         {
             HideInsertMark();
             e.Effects = DragDropEffects.None;
         }
-        SetDropHot(null);
-        ShellDragDrop.Leave();
-        e.Handled = true;
     }
 
     private void Bar_DragLeave(object sender, DragEventArgs e)
@@ -217,30 +388,30 @@ public sealed class BookmarkBar : DockPanel
         HideInsertMark();
         SetDropHot(null);
         ShellDragDrop.Leave();
+        Hover(null, null);
+        _closeTimer.Start(); // the drop-down survives the short trip from the bar into it
     }
 
     private void Bar_Drop(object sender, DragEventArgs e)
     {
         var target = ButtonAt(e);
+        var payload = Payload(e);
         int index = InsertIndex(e);
-        HideInsertMark();
-        SetDropHot(null);
-        if (e.Data.GetData(ReorderFormat) is Bookmark moving)
-            BookmarkStore.Move(moving, index);
-        else if (target is { Tag: Bookmark b } && b.Exists)
-            ShellDragDrop.Drop(e, this, b.Path);
-        else
-            foreach (var folder in DroppedFolders(e)) BookmarkStore.Add(folder, index++);
+        bool into = target != null && IsIntoFolder(target, e);
         e.Handled = true;
+        EndDrag();
+
+        if (into && target!.Tag is Bookmark folder) { DropInto(payload, folder); return; }
+        if (payload.Moving != null) { BookmarkStore.Move(payload.Moving, index); return; }
+        if (payload.Folders.Count > 0) { foreach (var f in payload.Folders) BookmarkStore.Add(f, index++); return; }
+        if (target is { Tag: Bookmark { IsFolder: false } b } && b.Exists) ShellDragDrop.Drop(e, this, b.Path);
     }
 
-    private static List<string> DroppedFolders(DragEventArgs e)
+    private static void DropInto((Bookmark? Moving, List<string> Folders) payload, Bookmark folder)
     {
-        try
-        {
-            return e.Data.GetData(DataFormats.FileDrop) is string[] paths ? paths.Where(Directory.Exists).ToList() : new();
-        }
-        catch { return new(); }
+        if (!CanTake(payload, folder)) return;
+        if (payload.Moving != null) BookmarkStore.Move(payload.Moving, -1, folder);
+        else foreach (var f in payload.Folders) BookmarkStore.Add(f, -1, folder);
     }
 
     private Button? ButtonAt(DragEventArgs e)
@@ -254,7 +425,7 @@ public sealed class BookmarkBar : DockPanel
     private int InsertIndex(DragEventArgs e)
     {
         var x = e.GetPosition(_panel).X;
-        var visible = _panel.Children.OfType<Button>().Where(b => !_panel.HiddenChildren.Contains(b)).ToList();
+        var visible = VisibleButtons();
         for (int i = 0; i < visible.Count; i++)
         {
             var left = visible[i].TranslatePoint(new Point(0, 0), _panel).X;
@@ -263,9 +434,11 @@ public sealed class BookmarkBar : DockPanel
         return visible.Count;
     }
 
+    private List<Button> VisibleButtons() => _panel.Children.OfType<Button>().Where(b => !_panel.HiddenChildren.Contains(b)).ToList();
+
     private void ShowInsertMark(int index)
     {
-        var visible = _panel.Children.OfType<Button>().Where(b => !_panel.HiddenChildren.Contains(b)).ToList();
+        var visible = VisibleButtons();
         double x = index < visible.Count ? visible[index].TranslatePoint(new Point(0, 0), _panel).X - 1
                  : visible.Count > 0 ? visible[^1].TranslatePoint(new Point(visible[^1].ActualWidth, 0), _panel).X + 1 : 2;
         Canvas.SetLeft(_insertMark, Math.Max(0, x - 1));
@@ -282,6 +455,128 @@ public sealed class BookmarkBar : DockPanel
         _dropHot?.ClearValue(BackgroundProperty);
         _dropHot = button;
         if (button != null) button.Background = (Brush)Application.Current.FindResource("Selection");
+    }
+
+    // ---------- hover 0.5 s → open ----------
+
+    private readonly DispatcherTimer _hoverTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer _closeTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
+    private object? _hoverTarget;
+    private Action? _hoverAction;
+
+    private void Hover(object? target, Action? action)
+    {
+        if (target == _hoverTarget) return;
+        _hoverTarget = target;
+        _hoverAction = action;
+        _hoverTimer.Stop();
+        if (target != null) _hoverTimer.Start();
+    }
+
+    private void HoverTimer_Tick(object? sender, EventArgs e)
+    {
+        _hoverTimer.Stop();
+        _hoverAction?.Invoke();
+    }
+
+    // ---------- drop-down used while dragging ----------
+    // A normal ContextMenu grabs the mouse, which breaks an ongoing drag, so dragging uses this light popup instead:
+    // it shows one folder level at a time; hovering a subfolder for 0.5 s steps into it.
+
+    private Popup? _dropPopup;
+    private StackPanel? _dropRows;
+    private Bookmark? _dropFolder;
+
+    private void OpenDropPopup(FrameworkElement anchor, Bookmark folder)
+    {
+        if (_dropPopup == null)
+        {
+            _dropRows = new StackPanel { MinWidth = 200 };
+            var border = new Border
+            {
+                Background = (Brush)Application.Current.FindResource("Surface"), BorderBrush = (Brush)Application.Current.FindResource("Border"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(3), Child = _dropRows, AllowDrop = true,
+            };
+            border.DragOver += Popup_DragOver;
+            border.DragEnter += Popup_DragOver;
+            border.DragLeave += (_, _) => _closeTimer.Start();
+            border.Drop += Popup_Drop;
+            _dropPopup = new Popup { Child = border, AllowsTransparency = true, StaysOpen = true, Placement = PlacementMode.Bottom, Focusable = false };
+        }
+        _dropPopup.PlacementTarget = anchor;
+        ShowDropLevel(folder);
+        _dropPopup.IsOpen = true;
+    }
+
+    private void ShowDropLevel(Bookmark folder)
+    {
+        _dropFolder = folder;
+        _rowHot = null;
+        _dropRows!.Children.Clear();
+        var path = new List<string>();
+        for (var f = folder; f != null; f = BookmarkStore.ParentFolder(f)) path.Insert(0, f.Name);
+        _dropRows.Children.Add(DropRow($"放進「{string.Join(" › ", path)}」", folder, header: true));
+        foreach (var sub in folder.Children!.Where(c => c.IsFolder)) _dropRows.Children.Add(DropRow(sub.Name, sub, header: false));
+        foreach (var b in folder.Children!.Where(c => !c.IsFolder))
+            _dropRows.Children.Add(new TextBlock { Text = "   " + b.Name, Opacity = 0.5, Margin = new Thickness(8, 3, 8, 3), IsHitTestVisible = false });
+    }
+
+    private Border DropRow(string text, Bookmark folder, bool header)
+    {
+        var row = new DockPanel();
+        if (!header)
+            row.Children.Add(new TextBlock { Text = "", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 9,
+                                             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
+        if (!header) SetDock(row.Children[0], Dock.Right);
+        row.Children.Add(IconFor(folder));
+        row.Children.Add(new TextBlock { Text = text, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                                         Foreground = (Brush)Application.Current.FindResource(header ? "TextDim" : "Text") });
+        return new Border { Child = row, Tag = folder, Padding = new Thickness(8, 4, 8, 4), CornerRadius = new CornerRadius(3), Background = Brushes.Transparent };
+    }
+
+    private Border? RowAt(DragEventArgs e)
+    {
+        for (var d = e.OriginalSource as DependencyObject; d != null; d = VisualTreeHelper.GetParent(d))
+            if (d is Border { Tag: Bookmark } row) return row;
+        return null;
+    }
+
+    private Border? _rowHot;
+
+    private void Popup_DragOver(object sender, DragEventArgs e)
+    {
+        _closeTimer.Stop();
+        e.Handled = true;
+        var row = RowAt(e);
+        var target = row?.Tag as Bookmark ?? _dropFolder;
+        var payload = Payload(e);
+        bool ok = target != null && CanTake(payload, target);
+        e.Effects = ok ? (payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link) : DragDropEffects.None;
+
+        if (_rowHot != row)
+        {
+            _rowHot?.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+            _rowHot = row;
+            if (row != null && ok) row.Background = (Brush)Application.Current.FindResource("Selection");
+        }
+        // Hovering a subfolder row steps into it.
+        Hover(row != null && target != _dropFolder ? row : null, target != null && target != _dropFolder ? () => ShowDropLevel(target) : null);
+    }
+
+    private void Popup_Drop(object sender, DragEventArgs e)
+    {
+        var target = RowAt(e)?.Tag as Bookmark ?? _dropFolder;
+        var payload = Payload(e);
+        e.Handled = true;
+        EndDrag();
+        if (target != null) DropInto(payload, target);
+    }
+
+    private void CloseDropPopup()
+    {
+        if (_dropPopup != null) _dropPopup.IsOpen = false;
+        _rowHot = null;
+        _dropFolder = null;
     }
 
     /// <summary>Horizontal panel that hides children that don't fully fit (they go into the » menu).</summary>
