@@ -109,11 +109,31 @@ public partial class MainWindow : Window
     public void OpenExternal(IReadOnlyList<string> args, bool activate = true)
     {
         if (activate) ShowFromTray();
-        foreach (var arg in args)
+        var select = new List<string>();
+        for (int i = 0; i < args.Count; i++)
         {
+            var arg = args[i].Trim();
+            // explorer-style "/select,<file>" (also split over two args): open its folder and select it.
+            if (arg.StartsWith("/select", StringComparison.OrdinalIgnoreCase))
+            {
+                var file = arg.Length > 8 ? arg[8..] : i + 1 < args.Count ? args[++i] : "";
+                if ((file = file.Trim().Trim('"')).Length > 0) select.Add(file);
+                continue;
+            }
+            if (arg == "::thispc") { OpenTab(FolderTab.ThisPc); continue; }
             if (DefaultFolderHandler.NormalizeArgument(arg) is { } folder) OpenTab(folder);
-            else if (arg.Trim().Trim('"').Length > 0)
-                try { System.Diagnostics.Process.Start("explorer.exe", $"\"{arg.Trim().Trim('"')}\""); } catch { }
+            else if (arg.Trim('"').Length > 0)
+            {
+                ExplorerTakeover.LetThrough(); // we hand this one to Explorer on purpose
+                try { System.Diagnostics.Process.Start("explorer.exe", $"\"{arg.Trim('"')}\""); } catch { }
+            }
+        }
+        // One tab per folder, with all of its files selected.
+        foreach (var group in select.GroupBy(f => Path.GetDirectoryName(f.TrimEnd('\\')) ?? "", StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(group.Key)) continue;
+            var doc = OpenTab(group.Key);
+            (doc.Content as FolderView)?.SelectWhenLoaded(group.Select(f => Path.GetFileName(f.TrimEnd('\\'))).ToList());
         }
         SingleInstance.Trace("tabs opened");
         Dispatcher.BeginInvoke(() => SingleInstance.Trace("rendered"), System.Windows.Threading.DispatcherPriority.ContextIdle);
@@ -129,16 +149,19 @@ public partial class MainWindow : Window
             if (MessageBox.Show(this, "要取消 MultiDir 為預設的資料夾開啟工具嗎？" + NL + "資料夾會改回用檔案總管開啟。", "MultiDir",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             DefaultFolderHandler.Unregister();
+            ExplorerTakeover.Stop();
         }
         else
         {
             if (MessageBox.Show(this, "要把 MultiDir 設為預設的資料夾開啟工具嗎？" + NL + NL +
                     "• 在桌面或其他程式開啟資料夾、磁碟時，會變成 MultiDir 的新分頁" + NL +
                     "• 只影響你的帳號，隨時可以再按這個按鈕取消" + NL +
-                    "• 控制台、資源回收筒等特殊資料夾仍由檔案總管開啟" + NL + NL +
+                    "• 「開啟檔案所在位置」與 Win+E 也會改開 MultiDir，並選取該檔案" + NL +
+                    "• 控制台、資源回收筒等特殊資料夾仍由檔案總管開啟；按住 Shift 開啟則一律用檔案總管" + NL + NL +
                     "註冊的程式位置：" + NL + Environment.ProcessPath, "MultiDir",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
             DefaultFolderHandler.Register();
+            ExplorerTakeover.Start(paths => OpenExternal(paths));
         }
         UpdateDefaultHandlerButton();
     }

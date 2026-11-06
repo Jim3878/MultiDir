@@ -114,6 +114,7 @@ public sealed class AutomationServer
         tab close <id> | tab activate <id>
         tab new <pane> <path>                  open a folder as a new tab in pane #pane
         tab nav <id> <path> | tab mode <id> extralarge|large|list|small | tab filter <id> <text>
+        tab selected <id> | tab open <args...>   (selected names / OpenExternal, e.g. tab open /select,<file>)
         tab sort <id> name|modified|type|size | tab items <id> [n]   (sort like a header click; list first n items)
         drop <folder> <path>... [--right] [--shift|--ctrl]   shell drop through the real drop code path
         menu                                   list the context menu the last right-click built (never shown on screen)
@@ -379,6 +380,9 @@ public sealed class AutomationServer
                 break;
             case "nav": Tab(int.Parse(a[1])).Navigate(string.Join(" ", a.Skip(2))); break;
             case "mode": Tab(int.Parse(a[1])).ViewMode = Enum.Parse<ViewMode>(a[2], ignoreCase: true); break;
+            case "selected":
+                return "selected: " + string.Join(", ", (Doc(int.Parse(a[1])).Content as FolderView)?.SelectedNames ?? []);
+            case "open": _window.OpenExternal(a.Skip(1).ToList(), activate: false); break;
             case "sort": Tab(int.Parse(a[1])).SortBy(Enum.Parse<SortKey>(a[2], ignoreCase: true)); break;
             case "items":
                 var t = Tab(int.Parse(a[1]));

@@ -55,6 +55,8 @@ public partial class App : Application
         if (automation) AutomationServer.Start(window);
         // Folders passed on the command line open as new tabs in the focused pane.
         window.OpenExternal(folders, activate: false);
+        // Default folder opener: also catch Explorer windows opened directly ("show in folder", Win+E).
+        if (!automation && DefaultFolderHandler.IsRegistered) ExplorerTakeover.Start(paths => window.OpenExternal(paths));
         Instance?.Listen(paths => window.Dispatcher.BeginInvoke(() =>
         {
             // "::exit" = quit like tray → 結束 (session saved); sent by "MultiDir --exit" / tools/run.ps1 before a rebuild.
@@ -72,6 +74,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         SingleInstance.Trace("exit: OnExit");
+        ExplorerTakeover.Stop();
         ViewModeStore.Save();
         SortStore.Save();
         HistoryStore.Save();

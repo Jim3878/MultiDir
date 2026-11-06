@@ -320,6 +320,37 @@ public partial class FolderView : UserControl
         else if (e.Key is Key.Down or Key.Enter) { List.Focus(); e.Handled = true; }
     }
 
+    /// <summary>
+    /// Selects these files (names in the current folder) as soon as the folder is listed, scrolls to the first and
+    /// focuses the list — what "open file location" / explorer /select should land on.
+    /// </summary>
+    public void SelectWhenLoaded(IReadOnlyCollection<string> names)
+    {
+        if (_tab == null || names.Count == 0) return;
+        void Apply()
+        {
+            var set = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+            if (_tab.Filter.Length > 0) _tab.Filter = "";
+            var items = _tab.Items.Where(i => set.Contains(i.Name)).ToList();
+            if (items.Count == 0) return;
+            // Scroll first so the (virtualized) row exists, focus it, and only then set the selection:
+            // focusing a recycled row could otherwise select whatever it showed before.
+            List.ScrollIntoView(items[0]);
+            List.UpdateLayout();
+            (List.ItemContainerGenerator.ContainerFromItem(items[0]) as ListViewItem)?.Focus();
+            List.SelectedItems.Clear();
+            foreach (var i in items) List.SelectedItems.Add(i);
+        }
+        if (_tab.IsLoaded) { Apply(); return; }
+        var tab = _tab;
+        EventHandler? handler = null;
+        handler = (_, _) => { tab.Loaded -= handler; if (_tab == tab) Apply(); };
+        tab.Loaded += handler;
+    }
+
+    /// <summary>Automation: names of the selected items.</summary>
+    public IEnumerable<string> SelectedNames => List.SelectedItems.Cast<FileItem>().Select(i => i.Name);
+
     /// <summary>Called when the pane is activated; never steal focus from something the user just clicked in this pane.</summary>
     public void FocusList()
     {

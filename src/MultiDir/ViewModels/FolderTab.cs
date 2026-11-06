@@ -193,6 +193,7 @@ public sealed class FolderTab : INotifyPropertyChanged
         var cts = _loadCts = new CancellationTokenSource();
         var token = cts.Token;
         Items.Clear();
+        IsLoaded = false;
         Status = "讀取中…";
         _loading = true;
         try { await LoadCoreAsync(path, cts, token); }
@@ -229,7 +230,13 @@ public sealed class FolderTab : INotifyPropertyChanged
             Items.Add(entries[i]);
         }
         UpdateStatus();
+        IsLoaded = true;
+        Loaded?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>The current folder is fully listed (raised once per load; e.g. to select a file after /select).</summary>
+    public event EventHandler? Loaded;
+    public bool IsLoaded { get; private set; }
 
     private static List<FileItem> Enumerate(string path, Comparison<FileItem> compare, CancellationToken token)
     {
