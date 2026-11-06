@@ -14,6 +14,18 @@ public partial class FolderView : UserControl
 {
     private FolderTab? _tab;
 
+    /// <summary>
+    /// The focused pane gets a slightly lighter background, the others a dimmer toolbar (see <see cref="FocusFrame"/>).
+    /// Null = only one pane, nothing to tell apart.
+    /// </summary>
+    public void SetActivePane(bool? active)
+    {
+        var bg = (Brush)Application.Current.FindResource(active == true ? "BgActive" : "Bg");
+        var bar = (Brush)Application.Current.FindResource(active == false ? "SurfaceInactive" : "Surface");
+        if (Background != bg) { Background = bg; List.Background = bg; }
+        if (Toolbar.Background != bar) { Toolbar.Background = bar; Resources["ColumnHeaderBg"] = bar; }
+    }
+
     public FolderView()
     {
         InitializeComponent();

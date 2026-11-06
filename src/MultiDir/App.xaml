@@ -4,7 +4,9 @@
     <Application.Resources>
         <!-- Dark palette (Phase 2 will follow the Windows theme; dark is the default for now). -->
         <SolidColorBrush x:Key="Bg" Color="#1E1F22"/>
+        <SolidColorBrush x:Key="BgActive" Color="#282A2E"/>  <!-- focused pane -->
         <SolidColorBrush x:Key="Surface" Color="#2B2D30"/>
+        <SolidColorBrush x:Key="SurfaceInactive" Color="#232427"/>  <!-- toolbar of an unfocused pane -->
         <SolidColorBrush x:Key="SurfaceHover" Color="#393B40"/>
         <SolidColorBrush x:Key="Border" Color="#43454A"/>
         <SolidColorBrush x:Key="Text" Color="#DFE1E5"/>
@@ -197,8 +199,10 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
+        <!-- Dynamic: an unfocused pane overrides it with SurfaceInactive (FolderView.SetActivePane). -->
+        <SolidColorBrush x:Key="ColumnHeaderBg" Color="#2B2D30"/>
         <Style TargetType="GridViewColumnHeader">
-            <Setter Property="Background" Value="{StaticResource Surface}"/>
+            <Setter Property="Background" Value="{DynamicResource ColumnHeaderBg}"/>
             <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="Padding" Value="8,4"/>

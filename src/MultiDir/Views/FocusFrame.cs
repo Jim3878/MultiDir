@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Documents;
 using System.Windows.Media;
 using AvalonDock.Controls;
 using AvalonDock.Layout;
@@ -7,12 +6,12 @@ using AvalonDock.Layout;
 namespace MultiDir.Views;
 
 /// <summary>
-/// Thin accent frame around the focused pane — where bookmarks, history, the sidebar and folders opened from
-/// outside will land. Shown only when there is more than one pane to choose from.
+/// Marks the focused pane — where bookmarks, history, the sidebar and folders opened from outside will land —
+/// by giving its folder view a slightly lighter background. Only when there is more than one pane to choose from.
 /// </summary>
 public static class FocusFrame
 {
-    private static readonly List<WeakReference<FrameAdorner>> Adorners = new();
+    private static readonly List<WeakReference<LayoutDocumentPaneControl>> Panes = new();
     private static LayoutDocumentPane? _active;
 
     public static void Register()
@@ -28,43 +27,25 @@ public static class FocusFrame
         Refresh();
     }
 
-    /// <summary>Re-evaluates every frame (also after panes are added/removed).</summary>
+    /// <summary>Re-evaluates every pane (also after panes are added/removed or tabs moved).</summary>
     public static void Refresh()
     {
-        Adorners.RemoveAll(w => !w.TryGetTarget(out _));
-        foreach (var w in Adorners) if (w.TryGetTarget(out var a)) a.InvalidateVisual();
+        Panes.RemoveAll(w => !w.TryGetTarget(out _));
+        // Only meaningful with a choice of panes (floating windows count).
+        bool choice = (_active?.Root as LayoutRoot)?.Descendents().OfType<LayoutDocumentPane>().Count(p => p.ChildrenCount > 0) > 1;
+        foreach (var w in Panes)
+        {
+            if (!w.TryGetTarget(out var control) || control.Model is not LayoutDocumentPane model) continue;
+            bool? on = choice ? model == _active : null;
+            foreach (var doc in model.Children)
+                if (doc.Content is FolderView view) view.SetActivePane(on);
+        }
     }
 
     private static void Attach(LayoutDocumentPaneControl control)
     {
-        var layer = AdornerLayer.GetAdornerLayer(control);
-        if (layer == null || layer.GetAdorners(control)?.OfType<FrameAdorner>().Any() == true) return;
-        var adorner = new FrameAdorner(control);
-        layer.Add(adorner);
-        Adorners.Add(new WeakReference<FrameAdorner>(adorner));
-        control.Unloaded += (_, _) => AdornerLayer.GetAdornerLayer(control)?.Remove(adorner);
+        if (!Panes.Any(w => w.TryGetTarget(out var c) && c == control))
+            Panes.Add(new WeakReference<LayoutDocumentPaneControl>(control));
         Refresh();
-    }
-
-    private sealed class FrameAdorner : Adorner
-    {
-        private readonly LayoutDocumentPaneControl _pane;
-        private static readonly Pen Pen = new((Brush)Application.Current.FindResource("Accent"), 2);
-
-        public FrameAdorner(LayoutDocumentPaneControl pane) : base(pane)
-        {
-            _pane = pane;
-            IsHitTestVisible = false; // purely visual: never steals clicks or drops
-        }
-
-        protected override void OnRender(DrawingContext dc)
-        {
-            if (_pane.Model is not LayoutDocumentPane model || model != _active) return;
-            // Only meaningful with a choice of panes (floating windows count).
-            if ((model.Root as LayoutRoot)?.Descendents().OfType<LayoutDocumentPane>().Count(p => p.ChildrenCount > 0) is not > 1) return;
-            var r = new Rect(_pane.RenderSize);
-            r.Inflate(-1, -1);
-            dc.DrawRoundedRectangle(null, Pen, r, 3, 3);
-        }
     }
 }
