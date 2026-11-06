@@ -42,7 +42,12 @@ public partial class MainWindow : Window
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
         FocusFrame.Register();
         // Panes come and go (splits, closing the last tab, presets): keep the frame's "more than one pane" rule current.
-        Dock.LayoutChanged += (_, _) => { Dock.Layout.Updated += (_, _) => FocusFrame.Refresh(); FocusFrame.Refresh(); };
+        Dock.LayoutChanged += (_, _) =>
+        {
+            Dock.Layout.Updated += (_, _) => { FocusFrame.Refresh(); RefreshTabTitles(); };
+            FocusFrame.Refresh();
+            RefreshTabTitles();
+        };
 
         SidePanel.BookmarkBar = Bookmarks;
         FolderView.OtherPanes = OtherPanesFor;
@@ -326,6 +331,18 @@ public partial class MainWindow : Window
         return doc;
     }
 
+    /// <summary>Same-named tabs (in any pane or floating window) get "專案A\src" / "專案A\…\src" labels.</summary>
+    private void RefreshTabTitles()
+    {
+        if (Dock.Layout == null) return;
+        var docs = Dock.Layout.Descendents().OfType<LayoutDocument>()
+            .Where(d => d.Content is FolderView { DataContext: FolderTab }).ToList();
+        var tabs = docs.Select(d => (FolderTab)((FolderView)d.Content).DataContext).ToList();
+        var labels = TabTitles.Compute(tabs.Select(t => (t.Path, t.Title)).ToList());
+        for (int i = 0; i < docs.Count; i++)
+            if (docs[i].Title != labels[i]) docs[i].Title = labels[i];
+    }
+
     /// <summary>Creates the tab's view and keeps the tab header in sync with its folder.</summary>
     private FolderView WireDocument(LayoutDocument doc, FolderTab tab)
     {
@@ -336,6 +353,7 @@ public partial class MainWindow : Window
         {
             doc.Title = tab.Title;
             doc.ToolTip = PathLabel(tab.Path);
+            RefreshTabTitles();
             HistoryStore.Add(tab.Path);
             if (doc == _lastDoc)
             {
