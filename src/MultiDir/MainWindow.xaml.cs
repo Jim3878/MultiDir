@@ -54,6 +54,7 @@ public partial class MainWindow : Window
         if (!TryRestoreSession()) ApplyDefaultLayout();
         SingleInstance.Trace("startup: layout");
         UpdateDefaultHandlerButton();
+        FileOperationQueue.Changed += UpdateQueueButton;
 
         // Session is saved on close, plus every 30 s so a crash or power loss loses little.
         Closing += (_, e) =>
@@ -155,6 +156,35 @@ public partial class MainWindow : Window
     }
 
     private static readonly string NL = Environment.NewLine;
+
+    // ---------- copy / move queue ----------
+
+    private void UpdateQueueButton()
+    {
+        var jobs = FileOperationQueue.Snapshot();
+        QueueBtn.Visibility = jobs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (jobs.Count == 0) { Flyout.CloseAll(); return; }
+        int waiting = jobs.Count(j => !j.Running);
+        var running = jobs.FirstOrDefault(j => j.Running);
+        QueueBtn.Content = running == null ? $"⧉ {waiting} 個複製工作等待中"
+            : waiting == 0 ? $"⧉ {(running.Move ? "移動" : "複製")}中"
+            : $"⧉ {(running.Move ? "移動" : "複製")}中 · 另有 {waiting} 個排隊";
+        QueueBtn.ToolTip = string.Join(Environment.NewLine, jobs.Select(j => (j.Running ? "▶ " : "· ") + j.Describe()));
+    }
+
+    /// <summary>The queue: the running job (its progress window has 取消) and the waiting ones (click = drop it).</summary>
+    private void QueueBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = new List<FlyoutItem?>();
+        foreach (var job in FileOperationQueue.Snapshot())
+        {
+            var j = job;
+            rows.Add(j.Running
+                ? new FlyoutItem { Header = "▶ " + j.Describe(), ToolTip = "進行中：在 Windows 的進度視窗可以暫停或取消", Dim = true }
+                : new FlyoutItem { Header = "等待：" + j.Describe(), ToolTip = "按一下取消這個工作", Click = () => FileOperationQueue.Cancel(j) });
+        }
+        Flyout.ShowBelow(QueueBtn, rows);
+    }
 
     private void DefaultHandler_Click(object sender, RoutedEventArgs e)
     {

@@ -1,3 +1,4 @@
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -95,8 +96,10 @@ public static class ShellDragDrop
     public static void Drop(DragEventArgs e, UIElement element, string? folder)
     {
         Views.DragHint.Hide();
+        string[]? paths = null;
+        try { paths = e.Data.GetData(DataFormats.FileDrop) as string[]; } catch { /* not files */ }
         e.Effects = (DragDropEffects)DropCore(ComData(e.Data), ScreenPoint(e, element), (int)e.KeyStates,
-            (int)e.AllowedEffects, (int)e.Effects, Hwnd(element), folder);
+            (int)e.AllowedEffects, (int)e.Effects, Hwnd(element), folder, paths);
         e.Handled = true;
     }
 
@@ -135,7 +138,8 @@ public static class ShellDragDrop
         return effect;
     }
 
-    private static int DropCore(ComDataObject? data, POINTL pt, int keysAtDrop, int allowed, int lastEffect, IntPtr hwnd, string? folder)
+    private static int DropCore(ComDataObject? data, POINTL pt, int keysAtDrop, int allowed, int lastEffect, IntPtr hwnd, string? folder,
+                                IReadOnlyList<string>? paths)
     {
         // Do NOT send another DragOver here: at drop time the mouse button is already released, and the
         // shell decides "left-drag = just do it / right-drag = show menu" from the key state of the LAST
@@ -149,6 +153,21 @@ public static class ShellDragDrop
             if (data != null) Helper()?.Drop(data, ref p, lastEffect);
             _helperEntered = false;
         }
+
+        // A plain left-drag copy / move of real files into a real folder goes to MultiDir's queue, so big
+        // copies run one after another. The shell already decided copy vs move (same drive, Shift/Ctrl).
+        // Right-drag (its menu), links, and anything virtual (zip folders, phones…) stay with the shell.
+        if ((_lastKeys & MK_RBUTTON) == 0 && lastEffect is DROPEFFECT_COPY or DROPEFFECT_MOVE
+            && folder != null && Directory.Exists(folder)
+            && paths is { Count: > 0 } && paths.All(p => File.Exists(p) || Directory.Exists(p)))
+        {
+            ReleaseTarget(sendLeave: true);
+            _targetFolder = null;
+            FileOperationQueue.Enqueue(paths, folder, move: lastEffect == DROPEFFECT_MOVE);
+            // Never report "moved" to the drag source: it would delete the originals itself before the queue ran.
+            return lastEffect == DROPEFFECT_MOVE ? DROPEFFECT_NONE : DROPEFFECT_COPY;
+        }
+
         int effect = DROPEFFECT_NONE;
         if (_target != null && data != null)
         {
@@ -176,7 +195,7 @@ public static class ShellDragDrop
             var pt = new POINTL();
             OverCore(data, pt, keys, allowed, IntPtr.Zero, folder);
             int last = OverCore(data, pt, keys, allowed, IntPtr.Zero, folder);
-            return DropCore(data, pt, modifierKeys, allowed, last, IntPtr.Zero, folder);
+            return DropCore(data, pt, modifierKeys, allowed, last, IntPtr.Zero, folder, paths);
         }
         finally
         {

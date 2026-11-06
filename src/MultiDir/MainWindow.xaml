@@ -22,6 +22,9 @@
             <DockPanel LastChildFill="True">
                 <Button x:Name="DefaultHandlerBtn" DockPanel.Dock="Right" Click="DefaultHandler_Click"
                         Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"/>
+                <!-- Copy / move queue: shown only while something is copying or waiting. -->
+                <Button x:Name="QueueBtn" DockPanel.Dock="Right" Click="QueueBtn_Click" Visibility="Collapsed"
+                        Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"/>
                 <!-- Presets are helpers only — dragging tabs is the primary way to split. -->
                 <ToggleButton x:Name="SidebarBtn" DockPanel.Dock="Left" Style="{StaticResource ToolButton}" Content="&#xE700;"
                               ToolTip="側邊欄（書籤 / 樹狀目錄 / 歷史）" IsChecked="True" Click="SidebarBtn_Click" Margin="0,0,4,0"/>

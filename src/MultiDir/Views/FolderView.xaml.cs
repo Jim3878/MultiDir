@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -378,6 +379,12 @@ public partial class FolderView : UserControl
             case Key.System when e.SystemKey == Key.F10 && (Keyboard.Modifiers & ModifierKeys.Shift) != 0:
             case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) != 0:
                 ShowContextMenuForKeyboard(); e.Handled = true; break;
+            case Key.C when Keyboard.Modifiers == ModifierKeys.Control && SelectedPaths() is { Count: > 0 } toCopy:
+                SetClipboard(toCopy, move: false); e.Handled = true; break;
+            case Key.X when Keyboard.Modifiers == ModifierKeys.Control && SelectedPaths() is { Count: > 0 } toCut:
+                SetClipboard(toCut, move: true); e.Handled = true; break;
+            case Key.V when Keyboard.Modifiers == ModifierKeys.Control && _tab.Path != FolderTab.ThisPc && !_tab.IsSearching:
+                PasteInto(_tab.Path); e.Handled = true; break;
             case Key.F2 when List.SelectedItem is FileItem { IsDrive: false } renameItem:
                 Rename(renameItem); e.Handled = true; break;
             case Key.Delete when !App.IsAutomation && SelectedPaths() is { Count: > 0 } toDelete:
@@ -606,6 +613,36 @@ public partial class FolderView : UserControl
         return list;
     }
 
+    // ---------- clipboard (same format as Explorer, so copy / paste works both ways) ----------
+
+    private static void SetClipboard(IReadOnlyList<string> paths, bool move)
+    {
+        var data = new DataObject();
+        var list = new System.Collections.Specialized.StringCollection();
+        list.AddRange(paths.ToArray());
+        data.SetFileDropList(list);
+        // DROPEFFECT_MOVE for cut, COPY|LINK for copy — what Explorer puts there.
+        data.SetData("Preferred DropEffect", new MemoryStream(BitConverter.GetBytes(move ? 2 : 5)));
+        try { Clipboard.SetDataObject(data, copy: true); } catch { /* clipboard busy */ }
+    }
+
+    /// <summary>Queues the files on the clipboard into <paramref name="folder"/>. False = no files there.</summary>
+    public static bool PasteInto(string folder)
+    {
+        try
+        {
+            if (!Clipboard.ContainsFileDropList()) return false;
+            var files = Clipboard.GetFileDropList().Cast<string>().ToList();
+            bool move = Clipboard.GetData("Preferred DropEffect") is MemoryStream s && s.Length >= 4
+                        && (BitConverter.ToInt32(s.ToArray(), 0) & 2) != 0;
+            if (files.Count == 0) return false;
+            FileOperationQueue.Enqueue(files, folder, move);
+            if (move) Clipboard.Clear(); // a cut is pasted once, like Explorer
+            return true;
+        }
+        catch { return false; } // clipboard busy
+    }
+
     /// <summary>
     /// Runs a chosen menu command. Opening folders and renaming stay inside MultiDir (navigate / new tab / rename box);
     /// everything else is executed by the shell exactly as Explorer would.
@@ -624,6 +661,9 @@ public partial class FolderView : UserControl
                 return;
             case "open" or "explore" or "opennewwindow" or "opennewtab" when allFolders:
                 foreach (var dir in items) OpenInNewTabRequested?.Invoke(this, dir.FullPath);
+                return;
+            // 貼上 (empty area = this folder, on a folder = into it): through the copy queue when it is files.
+            case "paste" when paths.Count == 1 && Directory.Exists(paths[0]) && PasteInto(paths[0]):
                 return;
             case "rename" when items.Count == 1 && !items[0].IsDrive:
                 Rename(items[0]);

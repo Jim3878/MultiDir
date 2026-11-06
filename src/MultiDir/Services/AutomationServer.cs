@@ -83,6 +83,8 @@ public sealed class AutomationServer
             "help" => Help,
             "layout" => Layout(),
             "shot" => Shot(args),
+            "queue" => "queue: " + string.Join(" | ", FileOperationQueue.Snapshot().Select(j => (j.Running ? "▶ " : "") + j.Describe())),
+            "paste" => Views.FolderView.PasteInto(string.Join(" ", args)) ? "OK queued" : "nothing to paste",
             "click" => Click(args, double_: false),
             "dblclick" => Click(args, double_: true),
             "wheel" => Wheel(args),
