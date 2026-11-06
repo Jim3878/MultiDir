@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ad="https://github.com/Dirkster99/AvalonDock"
+        xmlns:views="clr-namespace:MultiDir.Views"
         Title="MultiDir" Width="1400" Height="860" WindowStartupLocation="CenterScreen"
         Background="{StaticResource Bg}" Foreground="{StaticResource Text}">
     <Window.InputBindings>
@@ -16,19 +17,20 @@
     </Window.CommandBindings>
 
     <DockPanel>
-        <!-- Layout presets: helpers only — dragging tabs is the primary way to split. -->
+        <!-- Top bar: layout presets | Chrome-style bookmark bar | default-handler toggle. -->
         <Border DockPanel.Dock="Top" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1" Padding="6,3">
             <DockPanel LastChildFill="True">
                 <Button x:Name="DefaultHandlerBtn" DockPanel.Dock="Right" Click="DefaultHandler_Click"
-                        Style="{StaticResource CrumbButton}" Height="22" Padding="8,0"/>
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="版面" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="2,0,6,0"/>
-                <Button Style="{StaticResource ToolButton}" Content="&#xE739;" ToolTip="單格" Click="Preset_Click" Tag="1"/>
-                <Button Style="{StaticResource ToolButton}" Content="&#xE89F;" ToolTip="左右兩格" Click="Preset_Click" Tag="2"/>
-                <Button Style="{StaticResource ToolButton}" Content="&#xF0E2;" ToolTip="四宮格" Click="Preset_Click" Tag="4"/>
-                <TextBlock Text="（拖曳分頁到窗格邊緣即可分割、拖到分頁列或功能列併入、拖出視窗變浮動）" Foreground="{StaticResource TextDim}"
-                           VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11"/>
-            </StackPanel>
+                        Style="{StaticResource CrumbButton}" Height="22" Padding="8,0" Margin="6,0,0,0"/>
+                <!-- Presets are helpers only — dragging tabs is the primary way to split. -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal"
+                            ToolTip="拖曳分頁到窗格邊緣即可分割、拖到分頁列或功能列併入、拖出視窗變浮動">
+                    <Button Style="{StaticResource ToolButton}" Content="&#xE739;" ToolTip="單格" Click="Preset_Click" Tag="1"/>
+                    <Button Style="{StaticResource ToolButton}" Content="&#xE89F;" ToolTip="左右兩格" Click="Preset_Click" Tag="2"/>
+                    <Button Style="{StaticResource ToolButton}" Content="&#xF0E2;" ToolTip="四宮格" Click="Preset_Click" Tag="4"/>
+                    <Border Width="1" Background="{StaticResource Border}" Margin="6,3"/>
+                </StackPanel>
+                <views:BookmarkBar x:Name="Bookmarks" Height="26" OpenRequested="Bookmarks_OpenRequested"/>
             </DockPanel>
         </Border>
 

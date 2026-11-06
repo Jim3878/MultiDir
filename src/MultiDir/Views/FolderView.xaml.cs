@@ -18,6 +18,29 @@ public partial class FolderView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, e) => Attach(e.NewValue as FolderTab);
+        // Keep ☆ in sync when bookmarks change anywhere (bar right-click → 移除, another pane's star…).
+        // Subscribed only while loaded, so closed tabs aren't kept alive by the static store.
+        System.Collections.Specialized.NotifyCollectionChangedEventHandler onBookmarks = (_, _) => UpdateStar();
+        Loaded += (_, _) => { BookmarkStore.Items.CollectionChanged += onBookmarks; UpdateStar(); };
+        Unloaded += (_, _) => BookmarkStore.Items.CollectionChanged -= onBookmarks;
+    }
+
+    private void Star_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tab == null || _tab.Path == FolderTab.ThisPc) return;
+        if (BookmarkStore.Find(_tab.Path) is { } existing) BookmarkStore.Remove(existing);
+        else BookmarkStore.Add(_tab.Path);
+    }
+
+    private void UpdateStar()
+    {
+        bool can = _tab != null && _tab.Path != FolderTab.ThisPc;
+        bool on = can && BookmarkStore.Contains(_tab!.Path);
+        StarBtn.IsEnabled = can;
+        StarBtn.Content = on ? "\uE735" : "\uE734";
+        StarBtn.Foreground = on ? new SolidColorBrush(Color.FromRgb(0xE8, 0xB3, 0x39))
+                           : can ? (Brush)FindResource("Text") : new SolidColorBrush(Color.FromRgb(0x55, 0x58, 0x5E));
+        StarBtn.ToolTip = on ? "移除書籤" : "加入書籤";
     }
 
     /// <summary>Middle-click on a folder → the host opens it in a new tab in the same pane.</summary>
@@ -36,6 +59,7 @@ public partial class FolderView : UserControl
         tab.PropertyChanged += Tab_PropertyChanged;
         ApplyViewMode();
         UpdateCrumbs();
+        UpdateStar();
     }
 
     private void Tab_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -43,7 +67,7 @@ public partial class FolderView : UserControl
         switch (e.PropertyName)
         {
             case nameof(FolderTab.ViewMode): ApplyViewMode(); break;
-            case nameof(FolderTab.Segments): UpdateCrumbs(); ScrollToTop(); break;
+            case nameof(FolderTab.Segments): UpdateCrumbs(); UpdateStar(); ScrollToTop(); break;
         }
     }
 

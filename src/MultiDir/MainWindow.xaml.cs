@@ -149,6 +149,21 @@ public partial class MainWindow : Window
         DefaultHandlerBtn.ToolTip = on ? "MultiDir 是目前的資料夾開啟工具，按一下取消" : "讓資料夾、磁碟預設用 MultiDir 開啟";
     }
 
+    // ---------- bookmark bar ----------
+
+    /// <summary>Bookmark click → the active tab goes there; Ctrl/middle-click → new tab in the active pane.</summary>
+    private void Bookmarks_OpenRequested(string path, bool newTab)
+    {
+        var doc = ActiveDocument;
+        if (!newTab && doc?.Content is FolderView { Tab: { } tab } view)
+        {
+            tab.Navigate(path);
+            doc.IsActive = true;
+            view.FocusList();
+        }
+        else OpenTab(path, doc?.Parent as LayoutDocumentPane);
+    }
+
     // ---------- session save / restore ----------
 
     /// <summary>Saves splits, tab order, floating windows, each tab's folder + history and the window placement.</summary>

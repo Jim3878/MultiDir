@@ -93,6 +93,7 @@ public sealed class AutomationServer
             "plus" => Plus(),
             "save" => Save(),
             "menu" => Menu(args),
+            "bookmark" => BookmarkCommand(args),
             _ => "ERROR unknown command; try: help",
         };
     }
@@ -113,6 +114,7 @@ public sealed class AutomationServer
         drop <folder> <path>... [--right] [--shift|--ctrl]   shell drop through the real drop code path
         menu                                   list the context menu the last right-click built (never shown on screen)
         menu pick <verb or text>               run an item of that menu (avoid ones that open dialogs or touch the clipboard)
+        bookmark list | add <path> | open <index> [new] | remove <index> | move <index> <newIndex>
         save                                   save the session now (as on close); restart with: mdctl start keep
         zone <x> <y>                           which pane header (re-dock drop zone) is at main-window pixel x,y
         wait <ms>
@@ -445,6 +447,22 @@ public sealed class AutomationServer
         var sb = new StringBuilder($"menu for {(last.Paths.Count == 0 ? "folder background" : string.Join(", ", last.Paths))}:{Environment.NewLine}");
         foreach (var i in items) sb.AppendLine($"{new string(' ', 2 + i.Depth * 2)}{i.Text}{(i.Verb != null ? $"  [{i.Verb}]" : "")}");
         return sb.ToString().TrimEnd();
+    }
+
+    private string BookmarkCommand(List<string> a)
+    {
+        if (a.Count == 0 || a[0] == "list") { _window.UpdateLayout(); return "bookmarks:" + Environment.NewLine + _window.Bookmarks.Describe(); }
+        switch (a[0])
+        {
+            case "add": BookmarkStore.Add(string.Join(" ", a.Skip(1))); break;
+            case "open": _window.Bookmarks.OpenAt(int.Parse(a[1]), a.Count > 2 && a[2] == "new"); break;
+            case "remove": BookmarkStore.Remove(BookmarkStore.Items[int.Parse(a[1])]); break;
+            case "move": BookmarkStore.Move(BookmarkStore.Items[int.Parse(a[1])], int.Parse(a[2])); break;
+            default: return "ERROR bookmark list|add|open|remove|move";
+        }
+        Pump();
+        _window.UpdateLayout();
+        return "OK" + Environment.NewLine + _window.Bookmarks.Describe();
     }
 
     private string Save() { _window.SaveSession(); return $"OK saved to {AppPaths.DataDir}"; }

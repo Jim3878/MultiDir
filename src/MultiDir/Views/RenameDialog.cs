@@ -42,6 +42,15 @@ public sealed class RenameDialog : Window
     }
 
     /// <summary>Asks for a new name and renames the file or folder. Returns the new full path, or null.</summary>
+    /// <summary>Plain text prompt (e.g. renaming a bookmark). Returns the trimmed text, or null if cancelled/empty.</summary>
+    public static string? Prompt(Window owner, string title, string text)
+    {
+        var dialog = new RenameDialog(text, isFile: false) { Owner = owner, Title = title };
+        if (dialog.ShowDialog() != true) return null;
+        var result = dialog._box.Text.Trim();
+        return result.Length == 0 ? null : result;
+    }
+
     public static string? Run(Window owner, string fullPath)
     {
         bool isFile = File.Exists(fullPath);

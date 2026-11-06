@@ -19,6 +19,43 @@
             <Setter Property="BorderBrush" Value="{StaticResource Border}"/>
         </Style>
 
+        <!-- Dark WPF menus (bookmark bar right-click and » overflow). Shell menus stay native. -->
+        <Style x:Key="DarkMenu" TargetType="ContextMenu">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="1" Padding="3" CornerRadius="4">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DarkMenuItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{StaticResource Text}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="b" Background="Transparent" CornerRadius="3" Padding="8,4,16,4" MinWidth="160">
+                            <StackPanel Orientation="Horizontal">
+                                <ContentPresenter ContentSource="Icon" Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                <ContentPresenter ContentSource="Header" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="{StaticResource SurfaceHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#55585E"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Flat icon button used in the pane toolbar. -->
         <Style x:Key="ToolButton" TargetType="ButtonBase">
             <Setter Property="Foreground" Value="{StaticResource Text}"/>

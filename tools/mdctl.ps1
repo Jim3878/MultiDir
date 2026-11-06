@@ -41,7 +41,7 @@ switch ($Commands[0]) {
     $extra = @($Commands | Select-Object -Skip 1)
     # Each test starts from the default layout unless "start keep" asks to restore the saved test session.
     if ($extra.Count -gt 0 -and $extra[0] -eq "keep") { $extra = @($extra | Select-Object -Skip 1) }
-    else { Remove-Item (Join-Path $env:TEMP "MultiDir-automation\layout.xml"), (Join-Path $env:TEMP "MultiDir-automation\session.json") -ErrorAction SilentlyContinue }
+    else { Remove-Item (Join-Path $env:TEMP "MultiDir-automation\layout.xml"), (Join-Path $env:TEMP "MultiDir-automation\session.json"), (Join-Path $env:TEMP "MultiDir-automation\bookmarks.json") -ErrorAction SilentlyContinue }
     $argList = @("--automation") + ($extra | ForEach-Object { "`"$_`"" })
     # Never launch an incomplete build: a missing runtimeconfig makes Windows pop a ".NET runtime" dialog on the user's screen.
     $cfg = [System.IO.Path]::ChangeExtension($exe, ".runtimeconfig.json")

@@ -82,6 +82,9 @@
                         </TextBlock.Style>
                     </TextBlock>
                 </Grid>
+                <!-- ☆ = add/remove this folder on the bookmark bar (like Chrome's star). -->
+                <Button x:Name="StarBtn" DockPanel.Dock="Right" Style="{StaticResource ToolButton}" Margin="2,0,0,0"
+                        Content="&#xE734;" ToolTip="加入書籤" Click="Star_Click"/>
                 <!-- Breadcrumb; clicking empty space turns it into an editable path box. -->
                 <Border x:Name="CrumbHost" Background="{StaticResource Bg}" BorderBrush="{StaticResource Border}" BorderThickness="1"
                         CornerRadius="3" Height="24" Margin="6,0,0,0" MouseLeftButtonDown="CrumbHost_MouseLeftButtonDown" Cursor="IBeam">
