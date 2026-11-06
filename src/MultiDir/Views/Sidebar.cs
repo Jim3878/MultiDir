@@ -112,6 +112,19 @@ public sealed class Sidebar : DockPanel
             Foreground = (Brush)Application.Current.FindResource("Text"),
         };
         ScrollViewer.SetHorizontalScrollBarVisibility(tree, ScrollBarVisibility.Disabled);
+        // The section's ScrollViewer does the scrolling, but the TreeView's own (inner, never scrolling) one
+        // swallows the mouse wheel: hand the wheel to the section instead.
+        tree.PreviewMouseWheel += (_, e) =>
+        {
+            if (e.Handled) return;
+            for (var d = VisualTreeHelper.GetParent(tree); d != null; d = VisualTreeHelper.GetParent(d))
+                if (d is ScrollViewer outer)
+                {
+                    outer.ScrollToVerticalOffset(outer.VerticalOffset - e.Delta / 3.0);
+                    e.Handled = true;
+                    return;
+                }
+        };
         return tree;
     }
 
