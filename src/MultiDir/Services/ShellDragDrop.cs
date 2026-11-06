@@ -37,7 +37,9 @@ public static class ShellDragDrop
         {
             _ownDrag = null;
             Marshal.ReleaseComObject(data);
-            Views.DragHint.Hide(); // drag ended anywhere (dropped outside, Esc…)
+            // Drag ended anywhere (dropped outside, Esc…): make sure our side let go of the drag image and target.
+            if (_helperEntered || _target != null) Leave();
+            Views.DragHint.Hide();
         }
     }
 
@@ -85,6 +87,25 @@ public static class ShellDragDrop
         else Views.DragHint.Hide();
     }
 
+    /// <summary>
+    /// For DragLeave events that may only be crossing child elements: leave unless another DragOver arrives very
+    /// soon. (A fast drag out of the window reports its last position still inside, and a missed leave keeps the
+    /// shell's drag image stuck on the screen.)
+    /// </summary>
+    public static void LeaveSoon()
+    {
+        var seen = _overCount;
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (_overCount == seen && (_helperEntered || _target != null)) Leave();
+        };
+        timer.Start();
+    }
+
+    private static int _overCount;
+
     public static void Leave()
     {
         Views.DragHint.Hide();
@@ -109,6 +130,7 @@ public static class ShellDragDrop
     private static int OverCore(ComDataObject? data, POINTL pt, int keys, int allowed, IntPtr hwnd, string? folder)
     {
         _lastKeys = keys;
+        _overCount++;
         int effect = allowed;
 
         var helper = Helper();

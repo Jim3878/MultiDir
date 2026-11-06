@@ -735,7 +735,11 @@ public partial class FolderView : UserControl
     {
         // DragLeave also fires when crossing child elements; only leave when the pointer really left the list.
         var p = e.GetPosition(List);
-        if (p.X >= 0 && p.Y >= 0 && p.X < List.ActualWidth && p.Y < List.ActualHeight) return;
+        if (p.X >= 0 && p.Y >= 0 && p.X < List.ActualWidth && p.Y < List.ActualHeight)
+        {
+            ShellDragDrop.LeaveSoon(); // or a fast drag straight out of the window: leave unless it comes back
+            return;
+        }
         SetDropHot(null);
         ShellDragDrop.Leave();
     }
@@ -758,7 +762,7 @@ public partial class FolderView : UserControl
     private void Crumbs_DragLeave(object sender, DragEventArgs e)
     {
         var p = e.GetPosition(Crumbs);
-        if (p.X >= 0 && p.Y >= 0 && p.X < Crumbs.ActualWidth && p.Y < Crumbs.ActualHeight) return;
+        if (p.X >= 0 && p.Y >= 0 && p.X < Crumbs.ActualWidth && p.Y < Crumbs.ActualHeight) { ShellDragDrop.LeaveSoon(); return; }
         ShellDragDrop.Leave();
     }
 

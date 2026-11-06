@@ -478,7 +478,7 @@ public sealed class BookmarkBar : DockPanel
     private void Bar_DragLeave(object sender, DragEventArgs e)
     {
         var p = e.GetPosition(this);
-        if (p.X >= 0 && p.Y >= 0 && p.X < ActualWidth && p.Y < ActualHeight) return;
+        if (p.X >= 0 && p.Y >= 0 && p.X < ActualWidth && p.Y < ActualHeight) { ShellDragDrop.LeaveSoon(); return; }
         HideInsertMark();
         SetDropHot(null);
         ShellDragDrop.Leave();

@@ -562,7 +562,7 @@ public partial class MainWindow : Window
     private void Dock_DragLeave(object sender, DragEventArgs e)
     {
         var p = e.GetPosition(Dock);
-        if (p.X >= 0 && p.Y >= 0 && p.X < Dock.ActualWidth && p.Y < Dock.ActualHeight) return;
+        if (p.X >= 0 && p.Y >= 0 && p.X < Dock.ActualWidth && p.Y < Dock.ActualHeight) { ShellDragDrop.LeaveSoon(); return; }
         _tabHoverTimer.Stop();
         _tabHoverDoc = null;
         ShellDragDrop.Leave();

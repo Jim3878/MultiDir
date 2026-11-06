@@ -528,7 +528,7 @@ public sealed class Sidebar : DockPanel
     {
         var p = e.GetPosition((UIElement)sender);
         var fe = (FrameworkElement)sender;
-        if (p.X >= 0 && p.Y >= 0 && p.X < fe.ActualWidth && p.Y < fe.ActualHeight) return;
+        if (p.X >= 0 && p.Y >= 0 && p.X < fe.ActualWidth && p.Y < fe.ActualHeight) { ShellDragDrop.LeaveSoon(); return; }
         SetHot(null);
         _dragHoverTimer.Stop();
         _dragHoverItem = null;
