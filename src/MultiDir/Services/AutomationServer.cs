@@ -146,7 +146,7 @@ public sealed class AutomationServer
         var visual = (Visual)win.Content;
         // Floating windows host their content in a nested HwndSource (an HwndHost), which renders as blank.
         var winHwnd = new WindowInteropHelper(win).Handle;
-        if (PresentationSource.CurrentSources.OfType<HwndSource>()
+        if (win is AvalonDock.Controls.LayoutFloatingWindowControl && PresentationSource.CurrentSources.OfType<HwndSource>()
                 .FirstOrDefault(s => s.Handle != winHwnd && IsChildOf(s.Handle, winHwnd) && s.RootVisual is FrameworkElement) is { } nested)
             visual = nested.RootVisual;
         var size = ((FrameworkElement)visual).RenderSize;

@@ -18,6 +18,9 @@
     <DockPanel>
         <!-- Layout presets: helpers only — dragging tabs is the primary way to split. -->
         <Border DockPanel.Dock="Top" Background="{StaticResource Surface}" BorderBrush="{StaticResource Border}" BorderThickness="0,0,0,1" Padding="6,3">
+            <DockPanel LastChildFill="True">
+                <Button x:Name="DefaultHandlerBtn" DockPanel.Dock="Right" Click="DefaultHandler_Click"
+                        Style="{StaticResource CrumbButton}" Height="22" Padding="8,0"/>
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="版面" Foreground="{StaticResource TextDim}" VerticalAlignment="Center" Margin="2,0,6,0"/>
                 <Button Style="{StaticResource ToolButton}" Content="&#xE739;" ToolTip="單格" Click="Preset_Click" Tag="1"/>
@@ -26,6 +29,7 @@
                 <TextBlock Text="（拖曳分頁到窗格邊緣即可分割、拖到分頁列或功能列併入、拖出視窗變浮動）" Foreground="{StaticResource TextDim}"
                            VerticalAlignment="Center" Margin="10,0,0,0" FontSize="11"/>
             </StackPanel>
+            </DockPanel>
         </Border>
 
         <Grid>

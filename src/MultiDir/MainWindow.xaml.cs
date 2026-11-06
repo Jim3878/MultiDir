@@ -28,14 +28,24 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SingleInstance.Trace("startup: InitializeComponent");
         Dock.Theme = new Vs2013DarkTheme();
+        SingleInstance.Trace("startup: theme");
         HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight);
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
 
         if (!TryRestoreSession()) ApplyDefaultLayout();
+        SingleInstance.Trace("startup: layout");
+        UpdateDefaultHandlerButton();
 
         // Session is saved on close, plus every 30 s so a crash or power loss loses little.
-        Closing += (_, _) => SaveSession();
+        Closing += (_, e) =>
+        {
+            SaveSession();
+            if (TrayIcon == null || _exiting) return;
+            e.Cancel = true; // closing the window keeps MultiDir in the tray (decision: default folder handler)
+            HideToTray();
+        };
         var autosave = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         autosave.Tick += (_, _) => SaveSession();
         autosave.Start();
@@ -55,6 +65,88 @@ public partial class MainWindow : Window
         var docs = start.Select(p => CreateDocument(new FolderTab(p))).ToList();
         ApplyPreset(4, docs.Select((d, i) => (d, i)).ToList());
         docs[0].IsActive = true;
+    }
+
+    // ---------- default folder handler: tray + folders from other launches ----------
+
+    public TrayIcon? TrayIcon { get; set; }
+    private bool _exiting;
+    private List<Window> _hiddenFloating = new();
+
+    private void HideToTray()
+    {
+        // Floating tab windows go (and come back) with the main window.
+        _hiddenFloating = Application.Current.Windows.OfType<Window>().Where(w => w != this && w.IsVisible).ToList();
+        foreach (var w in _hiddenFloating) w.Hide();
+        Hide();
+        TrayIcon?.ShowHiddenHint();
+    }
+
+    public void ShowFromTray()
+    {
+        if (!IsVisible)
+        {
+            Show();
+            foreach (var w in _hiddenFloating) w.Show();
+            _hiddenFloating.Clear();
+        }
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        if (!App.IsAutomation) Activate(); // an off-screen test window must never take the user's focus
+    }
+
+    public void ExitApp()
+    {
+        _exiting = true;
+        Close();
+    }
+
+    /// <summary>
+    /// Folders handed to MultiDir from outside (command line, folder double-click, another launch):
+    /// each becomes a new tab in the last focused pane. Non-folders (virtual shell locations) go to Explorer.
+    /// </summary>
+    public void OpenExternal(IReadOnlyList<string> args, bool activate = true)
+    {
+        if (activate) ShowFromTray();
+        foreach (var arg in args)
+        {
+            if (DefaultFolderHandler.NormalizeArgument(arg) is { } folder) OpenTab(folder);
+            else if (arg.Trim().Trim('"').Length > 0)
+                try { System.Diagnostics.Process.Start("explorer.exe", $"\"{arg.Trim().Trim('"')}\""); } catch { }
+        }
+        SingleInstance.Trace("tabs opened");
+        Dispatcher.BeginInvoke(() => SingleInstance.Trace("rendered"), System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
+
+    private static readonly string NL = Environment.NewLine;
+
+    private void DefaultHandler_Click(object sender, RoutedEventArgs e)
+    {
+        if (App.IsAutomation) return;
+        if (DefaultFolderHandler.IsRegistered)
+        {
+            if (MessageBox.Show(this, "要取消 MultiDir 為預設的資料夾開啟工具嗎？" + NL + "資料夾會改回用檔案總管開啟。", "MultiDir",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            DefaultFolderHandler.Unregister();
+        }
+        else
+        {
+            if (MessageBox.Show(this, "要把 MultiDir 設為預設的資料夾開啟工具嗎？" + NL + NL +
+                    "• 在桌面或其他程式開啟資料夾、磁碟時，會變成 MultiDir 的新分頁" + NL +
+                    "• 只影響你的帳號，隨時可以再按這個按鈕取消" + NL +
+                    "• 控制台、資源回收筒等特殊資料夾仍由檔案總管開啟" + NL + NL +
+                    "註冊的程式位置：" + NL + Environment.ProcessPath, "MultiDir",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+            DefaultFolderHandler.Register();
+        }
+        UpdateDefaultHandlerButton();
+    }
+
+    private void UpdateDefaultHandlerButton()
+    {
+        bool on = DefaultFolderHandler.IsRegistered;
+        DefaultHandlerBtn.Content = on ? "✓ 預設開啟工具" : "設為預設開啟工具";
+        DefaultHandlerBtn.IsEnabled = !App.IsAutomation;
+        DefaultHandlerBtn.ToolTip = on ? "MultiDir 是目前的資料夾開啟工具，按一下取消" : "讓資料夾、磁碟預設用 MultiDir 開啟";
     }
 
     // ---------- session save / restore ----------
