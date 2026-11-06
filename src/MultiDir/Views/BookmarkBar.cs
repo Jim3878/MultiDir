@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -19,7 +19,6 @@ namespace MultiDir.Views;
 public sealed class BookmarkBar : DockPanel
 {
     private const string ReorderFormat = "MultiDir.Bookmark";
-    private static readonly Brush FolderBrush = new SolidColorBrush(Color.FromRgb(0xE8, 0xB3, 0x39));
 
     private readonly OverflowPanel _panel = new() { ClipToBounds = true };
     private readonly Button _overflow;
@@ -91,17 +90,29 @@ public sealed class BookmarkBar : DockPanel
 
     private void Rebuild()
     {
+        var openOn = Flyout.Anchor is Button { Tag: Bookmark f } ? f : null; // a folder's drop-down is open
+        bool overflowOpen = Flyout.Anchor == _overflow;
         _panel.Children.Clear();
         foreach (var b in BookmarkStore.Items) _panel.Children.Add(CreateButton(b));
         _empty.Visibility = BookmarkStore.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (openOn == null && !overflowOpen) return;
+        // Keep an open drop-down open and show the change (e.g. right after dragging inside it), once the bar
+        // has laid out again (which buttons went into » is only known then).
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (overflowOpen) { Flyout.Refresh(); return; }
+            var button = _panel.Children.OfType<Button>().FirstOrDefault(x => x.Tag == openOn);
+            if (button == null || _panel.HiddenChildren.Contains(button)) Flyout.CloseAll();
+            else Flyout.Refresh(button);
+        }, DispatcherPriority.Loaded);
     }
 
     private Button CreateButton(Bookmark b)
     {
-        var text = new TextBlock { Text = b.Name, MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 0) };
+        var text = new TextBlock { Text = b.Name, MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         if (!b.IsFolder && !b.Exists) { text.Opacity = 0.5; text.FontStyle = FontStyles.Italic; }
         var content = new StackPanel { Orientation = Orientation.Horizontal };
-        content.Children.Add(IconFor(b));
+        if (IconFor(b) is { } icon) { content.Children.Add(icon); text.Margin = new Thickness(5, 0, 0, 0); }
         content.Children.Add(text);
 
         var button = new Button
@@ -125,10 +136,17 @@ public sealed class BookmarkBar : DockPanel
         return button;
     }
 
-    private static FrameworkElement IconFor(Bookmark b) => b.IsFolder
-        ? new TextBlock { Text = "\uE8B7", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 14,
-                          Foreground = FolderBrush, Width = 16, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-        : new Image { Source = b.Icon, Width = 16, Height = 16 };
+    /// <summary>
+    /// Only bookmark folders get an icon (the filled Windows folder): every bookmark is a folder anyway, so an icon on
+    /// each would say nothing \u2014 and the outline glyph used before looked like an empty folder.
+    /// </summary>
+    private static FrameworkElement? IconFor(Bookmark b) => b.IsFolder
+        ? new Image
+        {
+            Source = ShellIcons.GetIcon(new Models.FileItem { Name = "x", FullPath = "x", IsDirectory = true }, large: false),
+            Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center,
+        }
+        : null;
 
     // ---------- menus ----------
     // One action list per entry feeds both the bar's right-click ContextMenu and the drop-down's right-click flyout.
@@ -185,7 +203,7 @@ public sealed class BookmarkBar : DockPanel
     }
 
     /// <summary>Folder icon / shell icon used for a bookmark entry.</summary>
-    public static FrameworkElement CreateIcon(Bookmark b) => IconFor(b);
+    public static FrameworkElement CreateIcon(Bookmark b) => IconFor(b) ?? new Border { Width = 16, Height = 16 }; // keeps names aligned
 
     private ContextMenu BarMenu(Bookmark b)
     {
@@ -208,16 +226,23 @@ public sealed class BookmarkBar : DockPanel
     private static List<FlyoutItem?> ToFlyout(List<MenuAction?> actions) =>
         actions.Select(a => a == null ? null : new FlyoutItem { Header = a.Header, Click = a.Run, Enabled = a.Enabled }).ToList();
 
-    /// <summary>Drop-down rows for a folder's contents: bookmarks, and nested folders as submenus.</summary>
-    private List<FlyoutItem?> Entries(IEnumerable<Bookmark> list)
+    /// <summary>
+    /// Drop-down rows for a folder's contents (<paramref name="parent"/>; null = top-level entries in »): bookmarks,
+    /// and nested folders as submenus. Rows can be dragged: up / down to reorder, onto a folder row to move into it,
+    /// or out onto the bar to take them out of the folder.
+    /// </summary>
+    private List<FlyoutItem?> Entries(IEnumerable<Bookmark> list, Bookmark? parent)
     {
         var rows = list.Select(c => (FlyoutItem?)(c.IsFolder
             ? new FlyoutItem
             {
-                Header = c.Name, Icon = IconFor(c),
-                Children = () => Entries(c.Children!),
+                Header = c.Name, Icon = IconFor(c), Key = c,
+                Children = () => Entries(c.Children!, c),
                 MiddleClick = () => OpenAll(c),
                 ContextItems = () => ToFlyout(FolderActions(c)),
+                DragData = () => new DataObject(ReorderFormat, c),
+                DragOver = (e, zone, pt) => RowDragOver(e, zone, pt, c, parent),
+                Drop = (e, zone) => RowDrop(e, zone, c, parent),
             }
             : new FlyoutItem
             {
@@ -225,16 +250,56 @@ public sealed class BookmarkBar : DockPanel
                 Click = () => Open(c, (Keyboard.Modifiers & ModifierKeys.Control) != 0),
                 MiddleClick = () => Open(c, true),
                 ContextItems = () => ToFlyout(BookmarkActions(c)),
+                DragData = () => new DataObject(ReorderFormat, c),
+                DragOver = (e, zone, pt) => RowDragOver(e, zone, pt, c, parent),
+                Drop = (e, zone) => RowDrop(e, zone, c, parent),
             })).ToList();
-        if (rows.Count == 0) rows.Add(new FlyoutItem { Header = "（空的）", Enabled = false });
+        if (rows.Count == 0 && parent != null)
+            rows.Add(new FlyoutItem
+            {
+                Header = "（空的）", Enabled = false,
+                // An empty folder still takes drops: they go into it.
+                DragOver = (e, _, pt) => CanTake(Payload(e), parent) ? HintInto(pt, Payload(e), parent) : DragDropEffects.None,
+                Drop = (e, _) => DropInto(Payload(e), parent),
+            });
         return rows;
     }
 
+    private static DragDropEffects HintInto(Point pt, (Bookmark? Moving, List<string> Folders) payload, Bookmark folder)
+    {
+        DragHint.Show(pt, "", payload.Moving != null ? $"移到書籤資料夾「{folder.Name}」" : $"加入書籤資料夾「{folder.Name}」");
+        return payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link;
+    }
+
+    /// <summary>A drag over a drop-down row: onto a folder row = into it; above / below a row = next to it in <paramref name="parent"/>.</summary>
+    private static DragDropEffects RowDragOver(DragEventArgs e, FlyoutDropZone zone, Point pt, Bookmark row, Bookmark? parent)
+    {
+        var payload = Payload(e);
+        if (zone == FlyoutDropZone.Into)
+            return CanTake(payload, row) ? HintInto(pt, payload, row) : DragDropEffects.None;
+        // Next to the row = into the row's list: never put a folder inside itself.
+        if (payload.Moving is { } m && parent != null && (parent == m || m.Contains(parent))) return DragDropEffects.None;
+        if (payload.Moving == null && payload.Folders.Count == 0) return DragDropEffects.None;
+        var where = parent != null ? $"「{parent.Name}」裡的這個位置" : "書籤列的這個位置";
+        DragHint.Show(pt, payload.Moving != null ? "" : "", payload.Moving != null ? $"移到{where}" : $"加入書籤到{where}");
+        return payload.Moving != null ? DragDropEffects.Move : DragDropEffects.Link;
+    }
+
+    private static void RowDrop(DragEventArgs e, FlyoutDropZone zone, Bookmark row, Bookmark? parent)
+    {
+        var payload = Payload(e);
+        if (zone == FlyoutDropZone.Into) { DropInto(payload, row); return; }
+        var siblings = parent?.Children ?? BookmarkStore.Items;
+        int index = siblings.IndexOf(row) + (zone == FlyoutDropZone.After ? 1 : 0);
+        if (payload.Moving != null) BookmarkStore.Move(payload.Moving, index, parent);
+        else foreach (var f in payload.Folders) BookmarkStore.Add(f, index++, parent);
+    }
+
     private void ShowFolderDropDown(FrameworkElement anchor, Bookmark folder) =>
-        Flyout.ShowBelow(anchor, Entries(folder.Children!));
+        Flyout.ShowBelow(anchor, () => Entries(folder.Children!, folder));
 
     private void ShowOverflowMenu() =>
-        Flyout.ShowBelow(_overflow, Entries(_panel.HiddenChildren.OfType<Button>().Select(b => (Bookmark)b.Tag)));
+        Flyout.ShowBelow(_overflow, () => Entries(_panel.HiddenChildren.OfType<Button>().Select(b => (Bookmark)b.Tag), null));
 
     // ---------- actions ----------
 
@@ -602,7 +667,7 @@ public sealed class BookmarkBar : DockPanel
             row.Children.Add(new TextBlock { Text = "\uE76C", FontFamily = (FontFamily)Application.Current.FindResource("IconFont"), FontSize = 9,
                                              VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
         if (!header) SetDock(row.Children[0], Dock.Right);
-        row.Children.Add(IconFor(folder));
+        row.Children.Add(IconFor(folder)!);
         row.Children.Add(new TextBlock { Text = text, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
                                          Foreground = (Brush)Application.Current.FindResource(header ? "TextDim" : "Text") });
         return new Border { Child = row, Tag = folder, Padding = new Thickness(8, 4, 8, 4), CornerRadius = new CornerRadius(3), Background = Brushes.Transparent };
