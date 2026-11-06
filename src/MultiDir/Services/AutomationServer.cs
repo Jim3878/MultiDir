@@ -34,6 +34,9 @@ public sealed class AutomationServer
     public static void Start(MainWindow window)
     {
         var server = new AutomationServer(window);
+        // A restored session's floating windows get clamped onto the user's screen; move them off it.
+        server.KeepFloatingOffScreen();
+        window.Dispatcher.BeginInvoke(server.KeepFloatingOffScreen, System.Windows.Threading.DispatcherPriority.Loaded);
         var thread = new Thread(server.Loop) { IsBackground = true, Name = "Automation pipe" };
         thread.Start();
     }
@@ -88,6 +91,7 @@ public sealed class AutomationServer
             "wait" => Wait(args),
             "zone" => Zone(args),
             "plus" => Plus(),
+            "save" => Save(),
             _ => "ERROR unknown command; try: help",
         };
     }
@@ -106,6 +110,7 @@ public sealed class AutomationServer
         tab new <pane> <path>                  open a folder as a new tab in pane #pane
         tab nav <id> <path> | tab mode <id> large|list|small | tab filter <id> <text>
         drop <folder> <path>... [--right] [--shift|--ctrl]   shell drop through the real drop code path
+        save                                   save the session now (as on close); restart with: mdctl start keep
         zone <x> <y>                           which pane header (re-dock drop zone) is at main-window pixel x,y
         wait <ms>
         """;
@@ -419,6 +424,8 @@ public sealed class AutomationServer
             foreach (var d in Find<T>(c)) yield return d;
         }
     }
+
+    private string Save() { _window.SaveSession(); return $"OK saved to {AppPaths.DataDir}"; }
 
     private static string Wait(List<string> a)
     {

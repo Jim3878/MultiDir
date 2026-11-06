@@ -6,6 +6,7 @@ using System.Windows.Media;
 using AvalonDock;
 using AvalonDock.Controls;
 using AvalonDock.Layout;
+using AvalonDock.Layout.Serialization;
 using AvalonDock.Themes;
 using MultiDir.Services;
 using MultiDir.ViewModels;
@@ -31,6 +32,17 @@ public partial class MainWindow : Window
         HeaderDocking = new HeaderDocking(Dock, HeaderDropHighlight);
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
 
+        if (!TryRestoreSession()) ApplyDefaultLayout();
+
+        // Session is saved on close, plus every 30 s so a crash or power loss loses little.
+        Closing += (_, _) => SaveSession();
+        var autosave = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        autosave.Tick += (_, _) => SaveSession();
+        autosave.Start();
+    }
+
+    private void ApplyDefaultLayout()
+    {
         // Default layout (decision #6): Q-dir style four-grid.
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var start = new[]
@@ -45,13 +57,79 @@ public partial class MainWindow : Window
         docs[0].IsActive = true;
     }
 
+    // ---------- session save / restore ----------
+
+    /// <summary>Saves splits, tab order, floating windows, each tab's folder + history and the window placement.</summary>
+    public void SaveSession()
+    {
+        var state = new SessionState { ActiveTab = ActiveDocument?.ContentId, Maximized = WindowState == WindowState.Maximized };
+        var bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+        (state.Left, state.Top, state.Width, state.Height) = (bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+        foreach (var doc in Dock.Layout.Descendents().OfType<LayoutDocument>())
+            if (doc.ContentId != null && doc.Content is FolderView { Tab: { } tab })
+                state.Tabs[doc.ContentId] = new TabState { Path = tab.Path, Back = tab.BackHistory, Forward = tab.ForwardHistory };
+        SessionStore.Save(state, w => new XmlLayoutSerializer(Dock).Serialize(w));
+        ViewModeStore.Save();
+    }
+
+    private bool TryRestoreSession()
+    {
+        var state = SessionStore.LoadState();
+        if (state == null || state.Tabs.Count == 0) return false;
+        var serializer = new XmlLayoutSerializer(Dock);
+        serializer.LayoutSerializationCallback += (_, e) =>
+        {
+            if (e.Model is LayoutDocument doc && doc.ContentId != null && state.Tabs.TryGetValue(doc.ContentId, out var saved))
+            {
+                var tab = new FolderTab(saved.Path);
+                tab.RestoreHistory(saved.Back, saved.Forward);
+                e.Content = WireDocument(doc, tab);
+            }
+            else e.Cancel = true;
+        };
+        try
+        {
+            using var reader = new StreamReader(SessionStore.LayoutPath);
+            serializer.Deserialize(reader);
+        }
+        catch { return false; }
+
+        var docs = Dock.Layout.Descendents().OfType<LayoutDocument>().Where(d => d.Content is FolderView).ToList();
+        if (docs.Count == 0) return false;
+        _nextTabId = docs.Max(d => int.TryParse(d.ContentId, out var id) ? id : 0);
+        _lastPane = docs[0].Parent as LayoutDocumentPane;
+
+        // Window placement, only if it is still on a connected screen.
+        var saved = new Rect(state.Left, state.Top, state.Width, state.Height);
+        var screen = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                              SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        if (saved.Width >= 400 && saved.Height >= 300 && screen.IntersectsWith(saved))
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            (Left, Top, Width, Height) = (saved.Left, saved.Top, saved.Width, saved.Height);
+            if (state.Maximized) WindowState = WindowState.Maximized;
+        }
+
+        (docs.FirstOrDefault(d => d.ContentId == state.ActiveTab) ?? docs[0]).IsActive = true;
+        return true;
+    }
+
     // ---------- documents (tabs) ----------
 
     private LayoutDocument CreateDocument(FolderTab tab)
     {
+        // ContentId = stable per-tab id (used by automation and session save/restore).
+        var doc = new LayoutDocument { ContentId = (++_nextTabId).ToString() };
+        doc.Content = WireDocument(doc, tab);
+        return doc;
+    }
+
+    /// <summary>Creates the tab's view and keeps the tab header in sync with its folder.</summary>
+    private FolderView WireDocument(LayoutDocument doc, FolderTab tab)
+    {
         var view = new FolderView { DataContext = tab };
-        // ContentId = stable per-tab id (used by automation and, later, by session save/restore).
-        var doc = new LayoutDocument { Content = view, Title = tab.Title, ToolTip = PathLabel(tab.Path), ContentId = (++_nextTabId).ToString() };
+        doc.Title = tab.Title;
+        doc.ToolTip = PathLabel(tab.Path);
         tab.Navigated += (_, _) =>
         {
             doc.Title = tab.Title;
@@ -59,7 +137,7 @@ public partial class MainWindow : Window
             if (doc == _lastDoc) UpdateWindowTitle(tab);
         };
         view.OpenInNewTabRequested += (v, path) => OpenTab(path, doc.Parent as LayoutDocumentPane, activate: false);
-        return doc;
+        return view;
     }
 
     /// <summary>Opens a folder as a new tab in the given pane (default: the last focused pane).</summary>

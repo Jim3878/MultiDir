@@ -103,6 +103,21 @@ public sealed class FolderTab : INotifyPropertyChanged
         SetLocation(path);
     }
 
+    /// <summary>Back / forward history, most recent first (session save).</summary>
+    public string[] BackHistory => _back.ToArray();
+    public string[] ForwardHistory => _forward.ToArray();
+
+    /// <summary>Puts back a saved history (most recent first), e.g. when a session is restored.</summary>
+    public void RestoreHistory(IEnumerable<string>? back, IEnumerable<string>? forward)
+    {
+        _back.Clear();
+        _forward.Clear();
+        foreach (var p in (back ?? []).Reverse()) _back.Push(p);
+        foreach (var p in (forward ?? []).Reverse()) _forward.Push(p);
+        OnPropertyChanged(nameof(CanGoBack));
+        OnPropertyChanged(nameof(CanGoForward));
+    }
+
     public void GoBack()
     {
         if (_back.Count == 0) return;
