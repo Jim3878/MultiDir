@@ -55,7 +55,12 @@ public partial class App : Application
         if (automation) AutomationServer.Start(window);
         // Folders passed on the command line open as new tabs in the focused pane.
         window.OpenExternal(folders, activate: false);
-        Instance?.Listen(paths => window.Dispatcher.BeginInvoke(() => window.OpenExternal(paths)));
+        Instance?.Listen(paths => window.Dispatcher.BeginInvoke(() =>
+        {
+            // "::exit" = quit like tray → 結束 (session saved); sent by "MultiDir --exit" / tools/run.ps1 before a rebuild.
+            if (paths.Contains(SingleInstance.ExitCommand)) { window.ExitApp(); return; }
+            window.OpenExternal(paths);
+        }));
     }
 
     /// <summary>Set by <see cref="Program.Main"/> when this process owns the single-instance lock.</summary>
@@ -68,6 +73,7 @@ public partial class App : Application
     {
         SingleInstance.Trace("exit: OnExit");
         ViewModeStore.Save();
+        SortStore.Save();
         HistoryStore.Save();
         Instance?.Dispose();
         (MainWindow as MainWindow)?.TrayIcon?.Dispose();

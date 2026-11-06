@@ -15,6 +15,12 @@ public static class Program
         bool automation = args.Contains("--automation");
         // Test instances stay separate from the user's MultiDir, unless a test opts in with its own instance id.
         bool single = !automation || Environment.GetEnvironmentVariable(SingleInstance.TestIdVariable) != null;
+        if (args.Contains("--exit"))
+        {
+            // Ask the running MultiDir to quit (session is saved); does nothing if none is running.
+            if (SingleInstance.TryAcquire([SingleInstance.ExitCommand]) is { } none) none.Dispose();
+            return 0;
+        }
         if (single)
         {
             var folders = args.Where(a => !a.StartsWith('-')).ToList();

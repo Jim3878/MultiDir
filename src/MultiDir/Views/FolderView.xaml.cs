@@ -18,6 +18,7 @@ public partial class FolderView : UserControl
     {
         InitializeComponent();
         DataContextChanged += (_, e) => Attach(e.NewValue as FolderTab);
+        List.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler(ColumnHeader_Click));
         // Keep ☆ in sync when bookmarks change anywhere (bar right-click → 移除, another pane's star…).
         // Subscribed only while loaded, so closed tabs aren't kept alive by the static store.
         Action onBookmarks = UpdateStar;
@@ -67,8 +68,33 @@ public partial class FolderView : UserControl
         switch (e.PropertyName)
         {
             case nameof(FolderTab.ViewMode): ApplyViewMode(); break;
+            case nameof(FolderTab.SortKey) or nameof(FolderTab.SortDescending): UpdateSortHeaders(); break;
             case nameof(FolderTab.Segments): UpdateCrumbs(); UpdateStar(); ScrollToTop(); break;
         }
+    }
+
+    // ---------- sorting (list mode column headers) ----------
+
+    private static readonly (string Label, SortKey Key)[] Columns =
+        [("名稱", SortKey.Name), ("修改日期", SortKey.Modified), ("類型", SortKey.Type), ("大小", SortKey.Size)];
+
+    private void ColumnHeader_Click(object sender, RoutedEventArgs e)
+    {
+        if (_tab == null || e.OriginalSource is not GridViewColumnHeader { Column: { } column }) return;
+        int i = (List.View as GridView)?.Columns.IndexOf(column) ?? -1;
+        if (i < 0 || i >= Columns.Length) return;
+        _tab.SortBy(Columns[i].Key);
+        e.Handled = true;
+    }
+
+    /// <summary>Header text with ▲/▼ on the sorted column.</summary>
+    private void UpdateSortHeaders()
+    {
+        if (_tab == null || List.View is not GridView grid) return;
+        for (int i = 0; i < grid.Columns.Count && i < Columns.Length; i++)
+            grid.Columns[i].Header = Columns[i].Key == _tab.SortKey
+                ? $"{Columns[i].Label}  {(_tab.SortDescending ? "▼" : "▲")}"
+                : Columns[i].Label;
     }
 
     // ---------- view modes ----------
@@ -88,6 +114,7 @@ public partial class FolderView : UserControl
             List.ItemContainerStyle = (Style)Application.Current.Resources["RowItemStyle"];
             List.ItemsPanel = (ItemsPanelTemplate)Resources["StackPanelTemplate"];
             List.View = (GridView)Resources["DetailsView"];
+            UpdateSortHeaders();
         }
         else
         {

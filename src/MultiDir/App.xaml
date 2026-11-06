@@ -212,6 +212,16 @@
                             </Border>
                             <Thumb x:Name="PART_HeaderGripper" HorizontalAlignment="Right" Width="6" Margin="0,0,-3,0" Cursor="SizeWE" Opacity="0"/>
                         </Grid>
+                        <!-- Clickable (sorts the column): show it. -->
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource SurfaceHover}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="{StaticResource Selection}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>

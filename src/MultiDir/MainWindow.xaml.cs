@@ -197,6 +197,7 @@ public partial class MainWindow : Window
         state.CollapsedSections = SidePanel.CollapsedSections;
         SessionStore.Save(state, w => new XmlLayoutSerializer(Dock).Serialize(w));
         ViewModeStore.Save();
+        SortStore.Save();
     }
 
     private bool TryRestoreSession()

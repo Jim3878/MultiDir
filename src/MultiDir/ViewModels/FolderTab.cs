@@ -33,7 +33,7 @@ public sealed class FolderTab : INotifyPropertyChanged
         Navigate(path, addHistory: false);
     }
 
-    public ObservableCollection<FileItem> Items { get; } = new();
+    public FileItemCollection Items { get; } = new();
     public ICollectionView View { get; }
 
     public string Path => _path;
@@ -47,6 +47,27 @@ public sealed class FolderTab : INotifyPropertyChanged
     public bool CanGoBack => _back.Count > 0;
     public bool CanGoForward => _forward.Count > 0;
     public bool CanGoUp => _path != ThisPc;
+
+    public SortKey SortKey => _sortKey;
+    public bool SortDescending => _sortDescending;
+    private SortKey _sortKey;
+    private bool _sortDescending;
+
+    /// <summary>
+    /// Column header click: the same column flips the direction, a new column starts ascending
+    /// (date and size start newest / largest first, like Explorer). Re-sorts in place; remembered per folder.
+    /// </summary>
+    public void SortBy(SortKey key)
+    {
+        bool desc = key == _sortKey ? !_sortDescending : key is SortKey.Modified or SortKey.Size;
+        (_sortKey, _sortDescending) = (key, desc);
+        SortStore.Set(_path, key, desc);
+        var sorted = Items.ToList();
+        sorted.Sort(Compare);
+        Items.ReplaceAll(sorted);
+        OnPropertyChanged(nameof(SortKey));
+        OnPropertyChanged(nameof(SortDescending));
+    }
 
     public ViewMode ViewMode
     {
@@ -146,11 +167,14 @@ public sealed class FolderTab : INotifyPropertyChanged
         _path = path;
         _filter = "";
         _viewMode = ViewModeStore.Get(path);
+        (_sortKey, _sortDescending) = SortStore.Get(path);
         OnPropertyChanged(nameof(Path));
         OnPropertyChanged(nameof(Title));
         OnPropertyChanged(nameof(Segments));
         OnPropertyChanged(nameof(Filter));
         OnPropertyChanged(nameof(ViewMode));
+        OnPropertyChanged(nameof(SortKey));
+        OnPropertyChanged(nameof(SortDescending));
         OnPropertyChanged(nameof(CanGoBack));
         OnPropertyChanged(nameof(CanGoForward));
         OnPropertyChanged(nameof(CanGoUp));
@@ -183,7 +207,8 @@ public sealed class FolderTab : INotifyPropertyChanged
         List<FileItem> entries;
         try
         {
-            entries = await Task.Run(() => Enumerate(path, token), token);
+            Comparison<FileItem> compare = Compare; // captures the current sort
+            entries = await Task.Run(() => Enumerate(path, compare, token), token);
         }
         catch (OperationCanceledException) { return; }
         catch (Exception ex)
@@ -206,7 +231,7 @@ public sealed class FolderTab : INotifyPropertyChanged
         UpdateStatus();
     }
 
-    private static List<FileItem> Enumerate(string path, CancellationToken token)
+    private static List<FileItem> Enumerate(string path, Comparison<FileItem> compare, CancellationToken token)
     {
         var result = new List<FileItem>();
         if (path == ThisPc)
@@ -226,7 +251,7 @@ public sealed class FolderTab : INotifyPropertyChanged
             if ((info.Attributes & ProtectedOs) == ProtectedOs) continue;
             result.Add(FromInfo(info));
         }
-        result.Sort(Compare);
+        result.Sort(compare);
         return result;
     }
 
@@ -248,9 +273,20 @@ public sealed class FolderTab : INotifyPropertyChanged
         };
     }
 
-    /// <summary>Folders first, then natural ("Explorer") order.</summary>
-    private static int Compare(FileItem a, FileItem b) =>
-        a.IsDirectory != b.IsDirectory ? (a.IsDirectory ? -1 : 1) : StrCmpLogicalW(a.Name, b.Name);
+    /// <summary>Folders always first; then the chosen column (ties by natural name order, like Explorer).</summary>
+    private int Compare(FileItem a, FileItem b)
+    {
+        if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
+        int c = _sortKey switch
+        {
+            SortKey.Modified => Nullable.Compare(a.Modified, b.Modified),
+            SortKey.Size => Nullable.Compare(a.Size, b.Size),
+            SortKey.Type => string.Compare(a.TypeName, b.TypeName, StringComparison.CurrentCultureIgnoreCase),
+            _ => 0,
+        };
+        if (c == 0) c = StrCmpLogicalW(a.Name, b.Name);
+        return _sortDescending ? -c : c;
+    }
 
     // ---------- auto refresh (no F5 needed) ----------
 
@@ -398,5 +434,18 @@ public sealed class FolderTab : INotifyPropertyChanged
         field = value;
         OnPropertyChanged(name);
         return true;
+    }
+}
+
+/// <summary>ObservableCollection that can swap its whole contents with a single Reset (fast re-sort of big folders).</summary>
+public sealed class FileItemCollection : ObservableCollection<FileItem>
+{
+    public void ReplaceAll(IEnumerable<FileItem> items)
+    {
+        Items.Clear();
+        foreach (var i in items) Items.Add(i);
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new System.Collections.Specialized.NotifyCollectionChangedEventArgs(System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
     }
 }

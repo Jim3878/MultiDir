@@ -112,6 +112,7 @@ public sealed class AutomationServer
         tab close <id> | tab activate <id>
         tab new <pane> <path>                  open a folder as a new tab in pane #pane
         tab nav <id> <path> | tab mode <id> large|list|small | tab filter <id> <text>
+        tab sort <id> name|modified|type|size | tab items <id> [n]   (sort like a header click; list first n items)
         drop <folder> <path>... [--right] [--shift|--ctrl]   shell drop through the real drop code path
         menu                                   list the context menu the last right-click built (never shown on screen)
         menu pick <verb or text>               run an item of that menu (avoid ones that open dialogs or touch the clipboard)
@@ -204,7 +205,10 @@ public sealed class AutomationServer
         // left click on a button is delivered as the button's own click (Click event + Command), like a real one.
         if (button == MouseButton.Left && !double_ && FindAncestor<System.Windows.Controls.Primitives.ButtonBase>(target) is { IsEnabled: true } btn)
         {
-            typeof(System.Windows.Controls.Primitives.ButtonBase)
+            // GridViewColumnHeader.OnClick ignores the click when the PHYSICAL mouse is outside it: raise Click directly.
+            if (btn is System.Windows.Controls.GridViewColumnHeader)
+                btn.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, btn));
+            else typeof(System.Windows.Controls.Primitives.ButtonBase)
                 .GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
                 .Invoke(btn, null);
             Pump();
@@ -373,6 +377,11 @@ public sealed class AutomationServer
                 break;
             case "nav": Tab(int.Parse(a[1])).Navigate(string.Join(" ", a.Skip(2))); break;
             case "mode": Tab(int.Parse(a[1])).ViewMode = Enum.Parse<ViewMode>(a[2], ignoreCase: true); break;
+            case "sort": Tab(int.Parse(a[1])).SortBy(Enum.Parse<SortKey>(a[2], ignoreCase: true)); break;
+            case "items":
+                var t = Tab(int.Parse(a[1]));
+                return string.Join(Environment.NewLine, t.Items.Take(a.Count > 2 ? int.Parse(a[2]) : 10)
+                    .Select(i => $"  {i.Name} | {i.ModifiedText} | {i.TypeName} | {i.SizeText}")) + Environment.NewLine + $"  (sort {t.SortKey} {(t.SortDescending ? "desc" : "asc")})";
             case "filter": Tab(int.Parse(a[1])).Filter = string.Join(" ", a.Skip(2)); break;
             default: return "ERROR unknown tab command";
         }

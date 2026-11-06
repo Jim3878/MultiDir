@@ -13,6 +13,9 @@ public sealed class SingleInstance : IDisposable
 {
     /// <summary>Lets automation tests run their own single-instance pair without touching the user's MultiDir.</summary>
     public const string TestIdVariable = "MULTIDIR_INSTANCE_ID";
+
+    /// <summary>Pipe message that makes the running instance quit (tools/run.ps1, "MultiDir --exit").</summary>
+    public const string ExitCommand = "::exit";
     private static readonly string Id = "MultiDir.Instance." + (Environment.GetEnvironmentVariable(TestIdVariable) ?? Environment.UserName);
     private readonly Mutex _mutex;
     private CancellationTokenSource? _cts;
