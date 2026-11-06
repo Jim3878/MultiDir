@@ -19,6 +19,12 @@ public sealed class FileItem : INotifyPropertyChanged
     public DateTime? Modified { get; init; }
     public long? Size { get; init; }
 
+    /// <summary>Search results only: the folder it was found in, relative to where the search started ("" = there).</summary>
+    public string Location { get; init; } = "";
+
+    /// <summary>Tooltip for the icon views, which have no 位置 column (null = no tooltip).</summary>
+    public string? LocationTip => Location.Length > 0 ? $"位置：{Location}" : null;
+
     public string Extension => IsDirectory ? "" : Path.GetExtension(Name);
 
     public string TypeName => IsDrive ? "磁碟" : IsDirectory ? "資料夾" : ShellIcons.GetTypeName(Extension);

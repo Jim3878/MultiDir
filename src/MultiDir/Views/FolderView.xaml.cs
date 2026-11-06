@@ -91,6 +91,7 @@ public partial class FolderView : UserControl
             case nameof(FolderTab.ViewMode): EndRename(commit: true); ApplyViewMode(); break;
             case nameof(FolderTab.SortKey) or nameof(FolderTab.SortDescending): EndRename(commit: true); UpdateSortHeaders(); break;
             case nameof(FolderTab.Segments): EndRename(commit: false); UpdateCrumbs(); UpdateStar(); ScrollToTop(); break;
+            case nameof(FolderTab.IsSearching): EndRename(commit: false); UpdateLocationColumn(); ScrollToTop(); break;
         }
     }
 
@@ -102,20 +103,44 @@ public partial class FolderView : UserControl
     private void ColumnHeader_Click(object sender, RoutedEventArgs e)
     {
         if (_tab == null || e.OriginalSource is not GridViewColumnHeader { Column: { } column }) return;
-        int i = (List.View as GridView)?.Columns.IndexOf(column) ?? -1;
+        int i = SortableColumns().IndexOf(column);
         if (i < 0 || i >= Columns.Length) return;
         _tab.SortBy(Columns[i].Key);
         e.Handled = true;
     }
 
+    /// <summary>The list-mode columns in <see cref="Columns"/> order (without the search results' 位置 column).</summary>
+    private List<GridViewColumn> SortableColumns() =>
+        List.View is GridView grid ? grid.Columns.Where(c => c != _locationColumn).ToList() : [];
+
     /// <summary>Header text with ▲/▼ on the sorted column.</summary>
     private void UpdateSortHeaders()
     {
-        if (_tab == null || List.View is not GridView grid) return;
-        for (int i = 0; i < grid.Columns.Count && i < Columns.Length; i++)
-            grid.Columns[i].Header = Columns[i].Key == _tab.SortKey
+        if (_tab == null) return;
+        var columns = SortableColumns();
+        for (int i = 0; i < columns.Count && i < Columns.Length; i++)
+            columns[i].Header = Columns[i].Key == _tab.SortKey
                 ? $"{Columns[i].Label}  {(_tab.SortDescending ? "▼" : "▲")}"
                 : Columns[i].Label;
+    }
+
+    private GridViewColumn? _locationColumn;
+
+    /// <summary>Search results get a 位置 column (the subfolder each one was found in) right after the name.</summary>
+    private void UpdateLocationColumn()
+    {
+        if (List.View is not GridView grid) return;
+        bool want = _tab?.IsSearching == true;
+        if (want && (_locationColumn == null || !grid.Columns.Contains(_locationColumn)))
+        {
+            _locationColumn = new GridViewColumn { Header = "位置", Width = 220, DisplayMemberBinding = new System.Windows.Data.Binding(nameof(FileItem.Location)) };
+            grid.Columns.Insert(1, _locationColumn);
+        }
+        else if (!want && _locationColumn != null)
+        {
+            grid.Columns.Remove(_locationColumn);
+            _locationColumn = null;
+        }
     }
 
     // ---------- view modes ----------
@@ -136,6 +161,8 @@ public partial class FolderView : UserControl
             List.ItemContainerStyle = (Style)Application.Current.Resources["RowItemStyle"];
             List.ItemsPanel = (ItemsPanelTemplate)Resources["StackPanelTemplate"];
             List.View = (GridView)Resources["DetailsView"];
+            _locationColumn = null;
+            UpdateLocationColumn();
             UpdateSortHeaders();
         }
         else
@@ -333,6 +360,11 @@ public partial class FolderView : UserControl
                 Open(item);
                 e.Handled = true;
                 break;
+            // Typed into the list (type-to-filter) with nothing selected: Enter searches subfolders, as in the box.
+            case Key.Enter when _tab is { Filter.Length: > 0, IsSearching: false, Path: not FolderTab.ThisPc }:
+                _tab.Search(_tab.Filter);
+                e.Handled = true;
+                break;
             case Key.Left when (Keyboard.Modifiers & ModifierKeys.Alt) != 0:
             case Key.System when e.SystemKey == Key.Left:
                 _tab.GoBack(); e.Handled = true; break;
@@ -358,8 +390,17 @@ public partial class FolderView : UserControl
 
     private void FilterBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && _tab != null) { _tab.Filter = ""; List.Focus(); e.Handled = true; }
-        else if (e.Key is Key.Down or Key.Enter) { List.Focus(); e.Handled = true; }
+        // With a Chinese input method on (even in its English mode) keys arrive as ImeProcessed.
+        var key = e.Key == Key.ImeProcessed ? e.ImeProcessedKey : e.Key;
+        if (key == Key.Escape && _tab != null) { _tab.Filter = ""; List.Focus(); e.Handled = true; }
+        else if (key == Key.Enter && _tab is { Filter.Length: > 0, Path: not FolderTab.ThisPc })
+        {
+            // Typing filters this folder; Enter searches every subfolder too.
+            _tab.Search(_tab.Filter);
+            List.Focus();
+            e.Handled = true;
+        }
+        else if (key is Key.Down or Key.Enter) { List.Focus(); e.Handled = true; }
     }
 
     /// <summary>
@@ -537,6 +578,17 @@ public partial class FolderView : UserControl
     {
         var list = new List<ShellContextMenu.CustomItem>();
         var items = List.SelectedItems.Cast<FileItem>().ToList();
+        if (forItems && items.Count == 1 && _tab?.IsSearching == true)
+        {
+            // Search result: jump to the folder it lives in, with it selected.
+            var found = items[0];
+            list.Add(new("開啟檔案位置", () =>
+            {
+                if (System.IO.Path.GetDirectoryName(found.FullPath.TrimEnd('\\')) is not { } dir) return;
+                _tab.Navigate(dir);
+                SelectWhenLoaded([found.Name]);
+            }));
+        }
         if (forItems && items.Count > 0 && items.All(i => i.IsDirectory))
         {
             var folders = items.Select(i => i.FullPath).ToList();

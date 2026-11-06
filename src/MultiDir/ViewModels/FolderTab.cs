@@ -85,9 +85,117 @@ public sealed class FolderTab : INotifyPropertyChanged
         set
         {
             if (!Set(ref _filter, value ?? "")) return;
+            // Clearing the box (Esc / deleting the text) leaves search results and shows the folder again.
+            if (_filter.Length == 0 && _search != null) { EndSearch(); return; }
             View.Refresh();
             UpdateStatus();
         }
+    }
+
+    // ---------- recursive search ----------
+
+    private string? _search;
+    private CancellationTokenSource? _searchCts;
+    private const int MaxResults = 10000;
+
+    /// <summary>Non-null while the list shows search results (all subfolders) instead of the folder itself.</summary>
+    public string? SearchText => _search;
+    public bool IsSearching => _search != null;
+
+    /// <summary>
+    /// Searches this folder and every subfolder for names matching <paramref name="text"/> (same rules as the
+    /// filter: substring, or * ? wildcards). Results stream into the list while the search runs in the background.
+    /// </summary>
+    public void Search(string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0 || _path == ThisPc) return;
+        _loadCts?.Cancel();
+        _searchCts?.Cancel();
+        var cts = _searchCts = new CancellationTokenSource();
+        _search = text;
+        _filter = text; // results all match it, and the box keeps showing what was searched
+        Items.Clear();
+        IsLoaded = false;
+        OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(SearchText));
+        OnPropertyChanged(nameof(IsSearching));
+        _ = SearchAsync(_path, text, cts.Token);
+    }
+
+    /// <summary>Back to the plain folder listing.</summary>
+    public void EndSearch()
+    {
+        if (_search == null) return;
+        _searchCts?.Cancel();
+        _search = null;
+        _filter = "";
+        OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(SearchText));
+        OnPropertyChanged(nameof(IsSearching));
+        View.Refresh();
+        _ = LoadAsync(_path);
+    }
+
+    private async Task SearchAsync(string root, string text, CancellationToken token)
+    {
+        var found = new System.Collections.Concurrent.ConcurrentQueue<FileItem>();
+        int folders = 0;
+        bool done = false, truncated = false;
+        var worker = Task.Run(() =>
+        {
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = 0 };
+            var results = new FileSystemEnumerable<FileItem>(root, (ref FileSystemEntry e) => FromEntry(ref e, root), options)
+            {
+                ShouldIncludePredicate = (ref FileSystemEntry e) =>
+                    (e.Attributes & ProtectedOs) != ProtectedOs && Matches(e.FileName.ToString(), text),
+                // Never follow junctions / symlinks (loops, and the same files twice); skip protected OS folders.
+                ShouldRecursePredicate = (ref FileSystemEntry e) =>
+                {
+                    if ((e.Attributes & (FileAttributes.ReparsePoint)) != 0 || (e.Attributes & ProtectedOs) == ProtectedOs) return false;
+                    Interlocked.Increment(ref folders);
+                    return true;
+                },
+            };
+            int count = 0;
+            foreach (var item in results)
+            {
+                if (token.IsCancellationRequested) return;
+                found.Enqueue(item);
+                if (++count >= MaxResults) { truncated = true; break; }
+            }
+        }, token).ContinueWith(_ => done = true, TaskScheduler.Default);
+
+        // Hand results to the list a few times a second, kept in sort order as they arrive.
+        while (true)
+        {
+            bool finished = done;
+            while (found.TryDequeue(out var item)) Items.Insert(InsertionIndex(item), item);
+            if (token.IsCancellationRequested) return;
+            Status = finished
+                ? $"搜尋「{text}」：{Items.Count} 個結果{(truncated ? $"（只列出前 {MaxResults} 個）" : "")}"
+                : $"搜尋「{text}」中…已找到 {Items.Count} 個（已掃描 {folders} 個資料夾）";
+            if (finished) break;
+            await Task.Delay(150, CancellationToken.None);
+        }
+        await worker;
+        IsLoaded = true;
+        Loaded?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static FileItem FromEntry(ref FileSystemEntry e, string root)
+    {
+        var dir = e.Directory.ToString();
+        var location = dir.Length > root.TrimEnd('\\').Length ? dir.Substring(root.TrimEnd('\\').Length).TrimStart('\\') : "";
+        return new FileItem
+        {
+            Name = e.FileName.ToString(),
+            FullPath = e.ToFullPath(),
+            IsDirectory = e.IsDirectory,
+            Modified = e.LastWriteTimeUtc.LocalDateTime,
+            Size = e.IsDirectory ? null : e.Length,
+            Location = location,
+        };
     }
 
     public event EventHandler? Navigated;
@@ -164,6 +272,10 @@ public sealed class FolderTab : INotifyPropertyChanged
 
     private void SetLocation(string path)
     {
+        _searchCts?.Cancel();
+        bool wasSearching = _search != null;
+        _search = null;
+        if (wasSearching) { OnPropertyChanged(nameof(SearchText)); OnPropertyChanged(nameof(IsSearching)); }
         _path = path;
         _filter = "";
         _viewMode = ViewModeStore.Get(path);
@@ -296,6 +408,7 @@ public sealed class FolderTab : INotifyPropertyChanged
             _ => 0,
         };
         if (c == 0) c = StrCmpLogicalW(a.Name, b.Name);
+        if (c == 0) c = StrCmpLogicalW(a.Location, b.Location); // search results: same name → grouped by where
         return _sortDescending ? -c : c;
     }
 
@@ -361,6 +474,7 @@ public sealed class FolderTab : INotifyPropertyChanged
             _pendingNames.Clear();
             _pendingFullReload = false;
         }
+        if (_search != null) return; // showing search results: the folder's own changes don't apply (F5 / Esc reload)
         if (_loading)
         {
             // Listing still streaming in: changes will be picked up by it or by the next flush.
@@ -405,9 +519,10 @@ public sealed class FolderTab : INotifyPropertyChanged
     private void UpdateStatus()
     {
         int total = Items.Count;
+        if (_search != null && _filter == _search) { Status = $"搜尋「{_search}」：{total} 個結果"; return; }
         if (_filter.Length == 0) { Status = $"{total} 個項目"; return; }
         int shown = View.Cast<object>().Count();
-        Status = $"篩選「{_filter}」：{shown} / {total} 個項目";
+        Status = $"篩選「{_filter}」：{shown} / {total} 個項目" + (_path == ThisPc ? "" : "　·　按 Enter 搜尋所有子資料夾");
     }
 
     /// <summary>Substring match, or wildcard match when the filter contains * or ?.</summary>

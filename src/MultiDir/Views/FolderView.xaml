@@ -1,4 +1,4 @@
-<UserControl x:Class="MultiDir.Views.FolderView"
+﻿<UserControl x:Class="MultiDir.Views.FolderView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
@@ -14,7 +14,7 @@
         </ItemsPanelTemplate>
 
         <DataTemplate x:Key="LargeTemplate">
-            <StackPanel Width="112" Margin="4,6">
+            <StackPanel Width="112" Margin="4,6" ToolTip="{Binding LocationTip}">
                 <Image Source="{Binding Thumbnail}" Width="96" Height="96" Stretch="Uniform"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
                 <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="Wrap" MaxHeight="34"
@@ -24,7 +24,7 @@
 
         <!-- 超大圖: 256 DIP thumbnails for looking at pictures. -->
         <DataTemplate x:Key="ExtraLargeTemplate">
-            <StackPanel Width="272" Margin="4,6">
+            <StackPanel Width="272" Margin="4,6" ToolTip="{Binding LocationTip}">
                 <Image Source="{Binding ThumbnailXL}" Width="256" Height="256" Stretch="Uniform"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
                 <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="Wrap" MaxHeight="34"
@@ -33,7 +33,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SmallTemplate">
-            <StackPanel Orientation="Horizontal" Width="220" Margin="4,2">
+            <StackPanel Orientation="Horizontal" Width="220" Margin="4,2" ToolTip="{Binding LocationTip}">
                 <Image Source="{Binding SmallIcon}" Width="16" Height="16"/>
                 <TextBlock Text="{Binding Name}" Margin="6,0,0,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
             </StackPanel>
@@ -82,7 +82,8 @@
                 </StackPanel>
                 <Grid DockPanel.Dock="Right" Width="130" Margin="6,0,0,0">
                     <TextBox x:Name="FilterBox" Style="{StaticResource FieldBox}" Height="24"
-                             Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" PreviewKeyDown="FilterBox_PreviewKeyDown"/>
+                             Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" PreviewKeyDown="FilterBox_PreviewKeyDown"
+                             ToolTip="輸入即篩選目前資料夾；按 Enter 搜尋所有子資料夾（Esc 清除）"/>
                     <TextBlock Text="&#xE71C; 篩選" Foreground="{StaticResource TextDim}" Margin="8,0" VerticalAlignment="Center"
                                FontFamily="Segoe UI, Segoe MDL2 Assets, Microsoft JhengHei" IsHitTestVisible="False">
                         <TextBlock.Style>

@@ -394,6 +394,9 @@ public sealed class AutomationServer
                 return string.Join(Environment.NewLine, t.Items.Take(a.Count > 2 ? int.Parse(a[2]) : 10)
                     .Select(i => $"  {i.Name} | {i.ModifiedText} | {i.TypeName} | {i.SizeText}")) + Environment.NewLine + $"  (sort {t.SortKey} {(t.SortDescending ? "desc" : "asc")})";
             case "filter": Tab(int.Parse(a[1])).Filter = string.Join(" ", a.Skip(2)); break;
+            case "search": Tab(int.Parse(a[1])).Search(string.Join(" ", a.Skip(2))); break;
+            case "status": return $"{Tab(int.Parse(a[1])).Status}";
+            case "focusfilter": (Doc(int.Parse(a[1])).Content as FolderView)?.FilterBox.Focus(); break;
             default: return "ERROR unknown tab command";
         }
         Pump();
