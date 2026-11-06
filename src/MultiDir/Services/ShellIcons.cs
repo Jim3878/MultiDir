@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -17,7 +17,38 @@ public static class ShellIcons
     // Extensions whose icon is per-file rather than per-type.
     private static readonly HashSet<string> PerFile = new(StringComparer.OrdinalIgnoreCase) { ".exe", ".lnk", ".ico", ".url", ".appref-ms" };
 
+    /// <summary>The icon, loaded right away if it is not cached yet (fine for a handful of icons).</summary>
     public static ImageSource? GetIcon(FileItem item, bool large)
+    {
+        var (key, path, useAttributes) = KeyOf(item, large);
+        return Cache.GetOrAdd(key, _ => Load(path, item.IsDirectory, large, useAttributes));
+    }
+
+    /// <summary>
+    /// For folder listings: a cached icon comes back at once; otherwise it is loaded on a background thread
+    /// (SHGetFileInfo can take several ms per file, e.g. resolving a .lnk) and <paramref name="whenReady"/> runs on
+    /// the UI thread with it. Meanwhile returns the generic icon for the type if that is already known, else null.
+    /// </summary>
+    public static ImageSource? GetIconAsync(FileItem item, bool large, Action<ImageSource?> whenReady)
+    {
+        var (key, path, useAttributes) = KeyOf(item, large);
+        if (Cache.TryGetValue(key, out var icon)) return icon;
+        lock (Pending)
+        {
+            if (Pending.TryGetValue(key, out var waiting)) waiting.Add(whenReady);
+            else
+            {
+                Pending[key] = [whenReady];
+                Queue.Add((key, path, item.IsDirectory, large, useAttributes));
+                EnsureWorker();
+            }
+        }
+        // A per-file icon (.exe, .lnk…) can show the type's generic icon until its own arrives.
+        return !item.IsDirectory && PerFile.Contains(item.Extension)
+               && Cache.TryGetValue((large ? "L|" : "S|") + item.Extension, out var generic) ? generic : null;
+    }
+
+    private static (string Key, string Path, bool UseAttributes) KeyOf(FileItem item, bool large)
     {
         string key;
         bool useAttributes;
@@ -25,10 +56,32 @@ public static class ShellIcons
         else if (item.IsDirectory) { key = "<dir>"; useAttributes = true; }
         else if (PerFile.Contains(item.Extension)) { key = item.FullPath; useAttributes = false; }
         else { key = item.Extension.Length == 0 ? "<noext>" : item.Extension; useAttributes = true; }
+        return ((large ? "L|" : "S|") + key, item.IsDirectory && !item.IsDrive ? "folder" : item.FullPath, useAttributes);
+    }
 
-        key = (large ? "L|" : "S|") + key;
-        return Cache.GetOrAdd(key, _ => Load(item.IsDirectory && !item.IsDrive ? "folder" : item.FullPath,
-            item.IsDirectory, large, useAttributes));
+    // ---------- background loading ----------
+
+    private static readonly Dictionary<string, List<Action<ImageSource?>>> Pending = new();
+    private static readonly System.Collections.Concurrent.BlockingCollection<(string Key, string Path, bool IsDir, bool Large, bool UseAttributes)> Queue = new();
+    private static Thread? _worker;
+
+    private static void EnsureWorker()
+    {
+        if (_worker != null) return;
+        var dispatcher = Application.Current.Dispatcher;
+        _worker = new Thread(() =>
+        {
+            foreach (var job in Queue.GetConsumingEnumerable())
+            {
+                var icon = Cache.GetOrAdd(job.Key, _ => Load(job.Path, job.IsDir, job.Large, job.UseAttributes));
+                List<Action<ImageSource?>> callbacks;
+                lock (Pending) { callbacks = Pending.Remove(job.Key, out var c) ? c : []; }
+                // Background priority: icons fill in after the frame is on screen, never delaying it.
+                dispatcher.BeginInvoke(() => { foreach (var cb in callbacks) cb(icon); }, System.Windows.Threading.DispatcherPriority.Background);
+            }
+        }) { IsBackground = true, Name = "Shell icons" };
+        _worker.SetApartmentState(ApartmentState.STA); // the shell expects COM to be initialized
+        _worker.Start();
     }
 
     public static string GetTypeName(string extension)

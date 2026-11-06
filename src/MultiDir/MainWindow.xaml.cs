@@ -392,8 +392,17 @@ public partial class MainWindow : Window
         {
             UpdateWindowTitle(tab);
             SidePanel.SyncTo(tab.Path);
-            Dispatcher.BeginInvoke(view.FocusList, System.Windows.Threading.DispatcherPriority.Input);
+            // The very first keyboard focus initializes text input services (~50-100 ms): not before the first frame.
+            Dispatcher.BeginInvoke(view.FocusList, _firstFrameShown ? System.Windows.Threading.DispatcherPriority.Input
+                                                                    : System.Windows.Threading.DispatcherPriority.ContextIdle);
         }
+    }
+
+    private bool _firstFrameShown;
+    protected override void OnContentRendered(EventArgs e)
+    {
+        _firstFrameShown = true;
+        base.OnContentRendered(e);
     }
 
     private void UpdateWindowTitle(FolderTab tab) => Title = $"{PathLabel(tab.Path)} — MultiDir";

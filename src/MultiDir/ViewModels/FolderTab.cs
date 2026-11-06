@@ -258,6 +258,10 @@ public sealed class FolderTab : INotifyPropertyChanged
             if ((info.Attributes & ProtectedOs) == ProtectedOs) continue;
             result.Add(FromInfo(info));
         }
+        // Look up each new file type's name here, off the UI thread (a registry walk per extension; dozens of them
+        // in e.g. C:\Windows made the first frame of a new tab noticeably late).
+        foreach (var ext in result.Where(i => !i.IsDirectory).Select(i => i.Extension).Distinct(StringComparer.OrdinalIgnoreCase))
+            ShellIcons.GetTypeName(ext);
         result.Sort(compare);
         return result;
     }

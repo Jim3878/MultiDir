@@ -28,7 +28,29 @@ public sealed class FileItem : INotifyPropertyChanged
     public string ModifiedText => Modified?.ToString("yyyy/MM/dd HH:mm") ?? "";
 
     /// <summary>16px shell icon, cached per extension.</summary>
-    public ImageSource? SmallIcon => ShellIcons.GetIcon(this, large: false);
+    public ImageSource? SmallIcon => _smallIcon ?? IconOf(large: false);
+
+    /// <summary>32px shell icon (what 大圖 shows until its thumbnail arrives).</summary>
+    private ImageSource? LargeIcon => _largeIcon ?? IconOf(large: true);
+
+    private ImageSource? _smallIcon, _largeIcon;
+
+    /// <summary>Loaded off the UI thread; the binding refreshes when it arrives.</summary>
+    private ImageSource? IconOf(bool large) => ShellIcons.GetIconAsync(this, large, icon =>
+    {
+        if (icon == null) return;
+        if (large)
+        {
+            _largeIcon = icon;
+            if (_thumbnail == null) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Thumbnail)));
+            if (_thumbnailXL == null) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ThumbnailXL)));
+        }
+        else
+        {
+            _smallIcon = icon;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SmallIcon)));
+        }
+    });
 
     /// <summary>
     /// 大圖 image (96 DIP). Returns the 32px icon until the async thumbnail arrives.
@@ -57,7 +79,7 @@ public sealed class FileItem : INotifyPropertyChanged
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(property));
             });
         }
-        return ShellIcons.GetIcon(this, large: true);
+        return LargeIcon;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
