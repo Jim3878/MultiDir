@@ -396,10 +396,11 @@ public sealed class FolderTab : INotifyPropertyChanged
         };
     }
 
-    /// <summary>Folders always first; then the chosen column (ties by natural name order, like Explorer).</summary>
+    /// <summary>Folders first (except by date, where folders and files mix so the newest items surface);
+    /// then the chosen column (ties by natural name order, like Explorer).</summary>
     private int Compare(FileItem a, FileItem b)
     {
-        if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
+        if (_sortKey != SortKey.Modified && a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
         int c = _sortKey switch
         {
             SortKey.Modified => Nullable.Compare(a.Modified, b.Modified),
