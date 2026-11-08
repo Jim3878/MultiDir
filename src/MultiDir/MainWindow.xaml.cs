@@ -40,6 +40,7 @@ public partial class MainWindow : Window
             DroppedOnBookmarkBar = TabsDroppedOnBookmarkBar,
         };
         NewTabButtons.Register(pane => OpenTab(FolderTab.ThisPc, pane));
+        RegisterCloseToRightMenuItem();
         FocusFrame.Register();
         // Panes come and go (splits, closing the last tab, presets): keep the frame's "more than one pane" rule current.
         Dock.LayoutChanged += (_, _) =>
@@ -492,6 +493,40 @@ public partial class MainWindow : Window
         OpenTab(FolderTab.ThisPc, ActiveDocument?.Parent as LayoutDocumentPane);
 
     private void CloseTab_Executed(object sender, ExecutedRoutedEventArgs e) => ActiveDocument?.Close();
+
+    /// <summary>Closes the tabs after <paramref name="doc"/> in its pane, like a browser's "close tabs to the right".
+    /// They go through the normal close, so Ctrl+Shift+T brings them back.</summary>
+    public static void CloseTabsToRight(LayoutDocument doc)
+    {
+        if (doc.Parent is not LayoutDocumentPane pane) return;
+        var docs = pane.Children.OfType<LayoutDocument>().ToList();
+        foreach (var d in docs.Skip(docs.IndexOf(doc) + 1).Where(d => d.CanClose)) d.Close();
+    }
+
+    private static bool HasTabsToRight(LayoutDocument doc) =>
+        doc.Parent is LayoutDocumentPane pane && pane.Children.OfType<LayoutDocument>().SkipWhile(d => d != doc).Skip(1).Any(d => d.CanClose);
+
+    /// <summary>
+    /// Adds 關閉右側分頁 to AvalonDock's own tab menu (right after 關閉其他) the first time it opens; the menu
+    /// comes from the theme, so it is patched rather than replaced and keeps float / new tab group etc.
+    /// </summary>
+    private void RegisterCloseToRightMenuItem()
+    {
+        EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler((s, _) =>
+        {
+            if (s is not ContextMenu menu || menu != Dock.DocumentContextMenu) return;
+            var item = menu.Items.OfType<MenuItem>().FirstOrDefault(i => Equals(i.Tag, nameof(CloseTabsToRight)));
+            if (item == null)
+            {
+                item = new MenuItem { Header = "關閉右側分頁", Tag = nameof(CloseTabsToRight) };
+                item.Click += (_, _) => { if (menu.DataContext is LayoutDocumentItem { LayoutElement: LayoutDocument doc }) CloseTabsToRight(doc); };
+                var after = menu.Items.OfType<MenuItem>()
+                    .FirstOrDefault(i => Equals(i.Header, AvalonDock.Properties.Resources.Document_CloseAllButThis));
+                menu.Items.Insert(after != null ? menu.Items.IndexOf(after) + 1 : menu.Items.Count, item);
+            }
+            item.IsEnabled = menu.DataContext is LayoutDocumentItem { LayoutElement: LayoutDocument d } && HasTabsToRight(d);
+        }));
+    }
 
     private void ReopenTab_Executed(object sender, ExecutedRoutedEventArgs e)
     {

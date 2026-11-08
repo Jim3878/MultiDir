@@ -367,6 +367,24 @@ public sealed class AutomationServer
                 KeepFloatingOffScreen();
                 break;
             case "close": Doc(int.Parse(a[1])).Close(); break;
+            case "closeright": MainWindow.CloseTabsToRight(Doc(int.Parse(a[1]))); break;
+            case "menu": // open the tab's right-click menu, list its items, optionally click one: tab menu <id> [header]
+            {
+                if (_window.Dock.DocumentContextMenu is not System.Windows.Controls.ContextMenu cm) return "ERROR no tab menu";
+                cm.DataContext = _window.Dock.GetLayoutItemFromModel(Doc(int.Parse(a[1])));
+                cm.Placement = System.Windows.Controls.Primitives.PlacementMode.AbsolutePoint;
+                cm.HorizontalOffset = cm.VerticalOffset = -10000; // keep it off the user's screen
+                cm.IsOpen = true;
+                Pump();
+                var entries = cm.Items.OfType<System.Windows.Controls.MenuItem>().ToList();
+                var lines = string.Join(Environment.NewLine, entries.Select(i => $"  {i.Header}{(i.IsEnabled ? "" : " (disabled)")}"));
+                var pick = a.Count > 2 ? entries.FirstOrDefault(i => i.Header as string == string.Join(" ", a.Skip(2))) : null;
+                cm.IsOpen = false;
+                if (a.Count > 2 && pick == null) return "ERROR no item" + Environment.NewLine + lines;
+                pick?.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.MenuItem.ClickEvent, pick));
+                Pump();
+                return "tab menu:" + Environment.NewLine + lines;
+            }
             case "activate": Doc(int.Parse(a[1])).IsActive = true; break;
             case "dock":
             {
